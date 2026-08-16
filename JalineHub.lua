@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    Camera-driven lock (uses CurrentCamera CFrame)
+    Camera CFrame lock + Zcoolio Tech
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -14,9 +14,7 @@ local CoreGui            = game:GetService("CoreGui")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
 
--- Inf Dash initialization
 if Workspace:GetAttribute("NoDashCooldown") == nil then
     Workspace:SetAttribute("NoDashCooldown", false)
 end
@@ -27,6 +25,14 @@ end
 local CONFIG = {
     AnimDetectId = "10503381238",
     BlockAnimId  = "10471478869",
+
+    -- Uppercut detection (Zcoolio). Add more IDs if needed.
+    UppercutAnimIds = {
+        "10503381238",
+        "10469493270",
+        "10469630950",
+        "14900168720",
+    },
 
     StarAssetId  = "rbxassetid://241594819",
     GifAssetId   = "rbxassetid://5860841663",
@@ -62,6 +68,10 @@ local STATE = {
     SpecialRange   = 50,
     SkillRange     = 50,
     SkillDelay     = 1.2,
+
+    -- Zcoolio
+    Zcoolio        = false,
+    ZcoolioDebounce = false,
 }
 
 ----------------------------------------------------------------
@@ -149,17 +159,24 @@ local function FireRemote(goal, mobile)
     end)
 end
 
--- Flat camera look direction (XZ only)
 local function GetCameraFlatLook()
     local cam = Workspace.CurrentCamera
     if not cam then return Vector3.new(0, 0, -1) end
-
     local look = cam.CFrame.LookVector
     local flat = Vector3.new(look.X, 0, look.Z)
     if flat.Magnitude < 0.001 then
         return Vector3.new(0, 0, -1)
     end
     return flat.Unit
+end
+
+local function IsUppercutId(idStr)
+    for _, uid in ipairs(CONFIG.UppercutAnimIds) do
+        if idStr == uid or idStr:find(uid, 1, true) then
+            return true
+        end
+    end
+    return false
 end
 
 ----------------------------------------------------------------
@@ -191,6 +208,11 @@ local function FindBestTarget()
         end
     end
     return bestRoot
+end
+
+local function FindBestTargetModel()
+    local root = FindBestTarget()
+    return root and root.Parent or nil
 end
 
 ----------------------------------------------------------------
@@ -233,7 +255,7 @@ local function IsAnyoneBlocking()
 end
 
 ----------------------------------------------------------------
--- CAMERA-DRIVEN HORIZONTAL LOCK
+-- CAMERA + CHARACTER LOCK (CFrame)
 ----------------------------------------------------------------
 local function StartHorizontalLock(targetRoot, duration)
     if duration <= 0 then return nil end
@@ -241,6 +263,7 @@ local function StartHorizontalLock(targetRoot, duration)
     local _, humanoid, hrp = GetCharParts()
     if not hrp or not humanoid then return nil end
 
+    local cam = Workspace.CurrentCamera
     local startTime = tick()
     local conn
 
@@ -257,7 +280,6 @@ local function StartHorizontalLock(targetRoot, duration)
         local hrpPos = hrp.Position
         local desiredLook
 
-        -- Prefer target when valid, otherwise pure camera facing
         if targetRoot and targetRoot.Parent then
             local toTarget = Vector3.new(targetRoot.Position.X - hrpPos.X, 0, targetRoot.Position.Z - hrpPos.Z)
             if toTarget.Magnitude > 0.05 then
@@ -269,24 +291,41 @@ local function StartHorizontalLock(targetRoot, duration)
             desiredLook = GetCameraFlatLook()
         end
 
-        -- Soft blend with camera so it always feels camera-aware
         local camLook = GetCameraFlatLook()
-        local blended = (desiredLook * 0.65 + camLook * 0.35)
+        local blended = (desiredLook * 0.7 + camLook * 0.3)
         if blended.Magnitude < 0.001 then
-            blended = camLook
+            blended = desiredLook
         else
             blended = blended.Unit
         end
 
-        local desired = CFrame.new(hrpPos, hrpPos + blended)
+        local desiredChar = CFrame.new(hrpPos, hrpPos + blended)
         local resp = math.clamp(STATE.Responsiveness, 1, 10000)
 
         if resp >= 900 then
-            pcall(function() hrp.CFrame = desired end)
+            pcall(function() hrp.CFrame = desiredChar end)
         else
             local alpha = 1 - math.exp(-0.028 * resp * dt)
             pcall(function()
-                hrp.CFrame = hrp.CFrame:Lerp(desired, math.clamp(alpha, 0, 1))
+                hrp.CFrame = hrp.CFrame:Lerp(desiredChar, math.clamp(alpha, 0, 1))
+            end)
+        end
+
+        -- Move / aim the actual camera CFrame toward the same direction
+        if cam then
+            local camPos = cam.CFrame.Position
+            local lookTarget
+
+            if targetRoot and targetRoot.Parent then
+                lookTarget = targetRoot.Position + Vector3.new(0, 1.5, 0)
+            else
+                lookTarget = camPos + blended * 20
+            end
+
+            local desiredCam = CFrame.new(camPos, lookTarget)
+            local camAlpha = math.clamp(1 - math.exp(-12 * dt), 0, 1)
+            pcall(function()
+                cam.CFrame = cam.CFrame:Lerp(desiredCam, camAlpha)
             end)
         end
 
@@ -315,7 +354,7 @@ local function CancelActiveLock()
 end
 
 ----------------------------------------------------------------
--- MAIN SEQUENCE
+-- MAIN SEQUENCE (Jaline Dash)
 ----------------------------------------------------------------
 local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
@@ -349,12 +388,19 @@ local function RunSequence()
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
 
-    -- Align to camera immediately before jump/dash
+    -- Snap character + camera to camera look before dash
     do
         local camLook = GetCameraFlatLook()
         pcall(function()
             hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + camLook)
         end)
+        local cam = Workspace.CurrentCamera
+        if cam then
+            local camPos = cam.CFrame.Position
+            pcall(function()
+                cam.CFrame = CFrame.new(camPos, camPos + camLook * 20)
+            end)
+        end
     end
 
     pcall(function()
@@ -416,15 +462,113 @@ local function RunSequence()
 end
 
 ----------------------------------------------------------------
--- ANIMATION + BLOCK
+-- ZCOOLIO TECH
+-- Detect uppercut -> CFrame to target toes -> look up
+----------------------------------------------------------------
+local function RunZcoolio()
+    if STATE.ZcoolioDebounce or not STATE.Zcoolio then return end
+    STATE.ZcoolioDebounce = true
+
+    local char, humanoid, hrp = GetCharParts()
+    if not char or not humanoid or not hrp then
+        STATE.ZcoolioDebounce = false
+        return
+    end
+
+    local targetModel = FindBestTargetModel()
+    if not targetModel then
+        STATE.ZcoolioDebounce = false
+        return
+    end
+
+    local targetRoot = targetModel:FindFirstChild("HumanoidRootPart")
+    if not targetRoot then
+        STATE.ZcoolioDebounce = false
+        return
+    end
+
+    -- Find toes / feet position
+    local toesPos
+    local leftFoot = targetModel:FindFirstChild("LeftFoot") or targetModel:FindFirstChild("Left Leg")
+    local rightFoot = targetModel:FindFirstChild("RightFoot") or targetModel:FindFirstChild("Right Leg")
+
+    if leftFoot and rightFoot then
+        toesPos = (leftFoot.Position + rightFoot.Position) / 2
+    elseif leftFoot then
+        toesPos = leftFoot.Position
+    elseif rightFoot then
+        toesPos = rightFoot.Position
+    else
+        -- Fallback: slightly below HRP
+        toesPos = targetRoot.Position - Vector3.new(0, 2.5, 0)
+    end
+
+    local prevAuto = humanoid.AutoRotate
+    pcall(function() humanoid.AutoRotate = false end)
+
+    -- 1) Tap character down to target toes (slightly in front)
+    local offset = (hrp.Position - targetRoot.Position)
+    offset = Vector3.new(offset.X, 0, offset.Z)
+    if offset.Magnitude < 0.1 then
+        offset = GetCameraFlatLook() * -1
+    else
+        offset = offset.Unit
+    end
+
+    local standPos = toesPos + offset * 1.1 + Vector3.new(0, 2.2, 0)
+
+    pcall(function()
+        hrp.CFrame = CFrame.new(standPos, standPos + Vector3.new(0, 5, 0)) -- temporary face up
+    end)
+
+    -- 2) Make character look up (toward target head / upward)
+    local head = targetModel:FindFirstChild("Head")
+    local lookAt = head and head.Position or (targetRoot.Position + Vector3.new(0, 3, 0))
+
+    task.wait(0.03)
+
+    pcall(function()
+        hrp.CFrame = CFrame.new(hrp.Position, lookAt)
+    end)
+
+    -- Also pitch camera upward
+    local cam = Workspace.CurrentCamera
+    if cam then
+        local camPos = cam.CFrame.Position
+        pcall(function()
+            cam.CFrame = CFrame.new(camPos, lookAt)
+        end)
+    end
+
+    task.delay(0.35, function()
+        pcall(function()
+            if humanoid and humanoid.Parent then
+                humanoid.AutoRotate = prevAuto
+            end
+        end)
+        STATE.ZcoolioDebounce = false
+    end)
+end
+
+----------------------------------------------------------------
+-- ANIMATION HOOKS
 ----------------------------------------------------------------
 local function OnAnimationPlayed(track)
-    if not STATE.Enabled or STATE.Debounce or STATE.Blocked then return end
     if not track or not track.Animation then return end
-
     local id = tostring(track.Animation.AnimationId or "")
-    if id == CONFIG.AnimDetectId or id:find(CONFIG.AnimDetectId, 1, true) then
-        task.spawn(RunSequence)
+
+    -- Jaline Dash detect
+    if STATE.Enabled and not STATE.Debounce and not STATE.Blocked then
+        if id == CONFIG.AnimDetectId or id:find(CONFIG.AnimDetectId, 1, true) then
+            task.spawn(RunSequence)
+        end
+    end
+
+    -- Zcoolio uppercut detect
+    if STATE.Zcoolio and not STATE.ZcoolioDebounce then
+        if IsUppercutId(id) then
+            task.spawn(RunZcoolio)
+        end
     end
 end
 
@@ -465,7 +609,7 @@ local function StartBlockChecker()
             end
         elseif not found and STATE.Blocked then
             STATE.Blocked = false
-            if STATE.Enabled then HookCharacter() end
+            if STATE.Enabled or STATE.Zcoolio then HookCharacter() end
         end
     end)
 end
@@ -871,7 +1015,7 @@ local function DashSetup()
 
     Connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function()
         task.wait(0.65)
-        if STATE.Enabled then HookCharacter() end
+        if STATE.Enabled or STATE.Zcoolio then HookCharacter() end
     end)
 end
 
@@ -946,19 +1090,14 @@ local Window = Rayfield:CreateWindow({
 
 task.defer(CreateVisuals)
 
-local Tab = Window:CreateTab({
-    name = "Jaline Dash",
-    icon = 93364949241311,
-})
+local Tab = Window:CreateTab({ name = "Jaline Dash", icon = 93364949241311 })
+local AutoBlockTab = Window:CreateTab({ name = "Auto Block", icon = 93364949241311 })
+local ZcoolioTab = Window:CreateTab({ name = "Zcoolio Tech", icon = 93364949241311 })
 
-local AutoBlockTab = Window:CreateTab({
-    name = "Auto Block",
-    icon = 93364949241311,
-})
-
+-- Jaline Dash
 Tab:CreateToggle({
     name = "Jaline Dash",
-    description = "Camera-driven loop dash",
+    description = "Camera CFrame driven loop dash",
     flag = "JalineDashEnabled",
     value = false,
     callback = function(value)
@@ -975,23 +1114,19 @@ Tab:CreateToggle({
 
 Tab:CreateToggle({
     name = "Activate Inf Dash",
-    description = "Removes dash cooldown (NoDashCooldown)",
+    description = "Removes dash cooldown",
     flag = "InfDash",
     value = false,
     callback = function(value)
         STATE.InfDash = value
         Workspace:SetAttribute("NoDashCooldown", value)
-        Window:Notify({
-            title = "Inf Dash",
-            content = value and "ACTIVATED" or "DEACTIVATED",
-            duration = 2
-        })
+        Window:Notify({ title = "Inf Dash", content = value and "ACTIVATED" or "DEACTIVATED", duration = 2 })
     end,
 })
 
 Tab:CreateToggle({
     name = "Body ESP",
-    description = "Optimized white body highlight",
+    description = "White body highlight",
     flag = "BodyESP",
     value = false,
     callback = function(value)
@@ -1045,6 +1180,7 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
+-- Auto Block
 AutoBlockTab:CreateToggle({
     name = "Activate Auto Block",
     description = "Detects enemy attacks and auto blocks",
@@ -1064,22 +1200,16 @@ AutoBlockTab:CreateToggle({
 
 AutoBlockTab:CreateToggle({
     name = "M1 After Block",
-    description = "Punish with M1 after successful block",
     flag = "M1AfterBlock",
     value = false,
-    callback = function(value)
-        STATE.M1AfterBlock = value
-    end,
+    callback = function(value) STATE.M1AfterBlock = value end,
 })
 
 AutoBlockTab:CreateToggle({
     name = "M1 Catch",
-    description = "Catch specials with M1 + dash",
     flag = "M1Catch",
     value = false,
-    callback = function(value)
-        STATE.M1Catch = value
-    end,
+    callback = function(value) STATE.M1Catch = value end,
 })
 
 AutoBlockTab:CreateSlider({
@@ -1119,4 +1249,27 @@ AutoBlockTab:CreateSlider({
     callback = function(v) STATE.SkillDelay = v end,
 })
 
-print("[Jaline Dash] Loaded • Camera-driven lock")
+-- Zcoolio Tech
+ZcoolioTab:CreateToggle({
+    name = "Zcoolio Tech",
+    description = "Uppercut detect → drop to toes → look up",
+    flag = "ZcoolioTech",
+    value = false,
+    callback = function(value)
+        STATE.Zcoolio = value
+        if value then
+            HookCharacter()
+            if not Connections.CharAdded then
+                Connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function()
+                    task.wait(0.65)
+                    if STATE.Enabled or STATE.Zcoolio then HookCharacter() end
+                end)
+            end
+            Window:Notify({ title = "Zcoolio Tech", content = "ACTIVATED", duration = 2.5 })
+        else
+            Window:Notify({ title = "Zcoolio Tech", content = "DEACTIVATED", duration = 2.5 })
+        end
+    end,
+})
+
+print("[Jaline Dash] Loaded • Camera CFrame + Zcoolio Tech")
