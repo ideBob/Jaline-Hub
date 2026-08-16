@@ -1,18 +1,19 @@
 --[[
     Jaline Dash
     Premium Edition
-    Black UI • Light Purple Glow • Falling Stars BG • Decorative GIF Asset
+    Black + Light Purple • Falling Stars • Decorative Pulsing Star
+    Fixed: One Highlight per character • Clean structure
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
-local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
-local TweenService      = game:GetService("TweenService")
-local Workspace         = game:GetService("Workspace")
-local CoreGui           = game:GetService("CoreGui")
+local Players     = game:GetService("Players")
+local RunService  = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local Workspace   = game:GetService("Workspace")
+local CoreGui     = game:GetService("CoreGui")
 
-local player = Players.LocalPlayer
+local LocalPlayer = Players.LocalPlayer
 
 ----------------------------------------------------------------
 -- CONFIG
@@ -21,22 +22,13 @@ local CONFIG = {
     AnimDetectId = "10503381238",
     BlockAnimId  = "10471478869",
 
-    BodyParts = {
-        "Head",
-        "Torso", "UpperTorso", "LowerTorso",
-        "Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand",
-        "Right Arm", "RightUpperArm", "RightLowerArm", "RightHand",
-        "Left Leg", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
-        "Right Leg", "RightUpperLeg", "RightLowerLeg", "RightFoot",
-    },
+    -- Exact assets you requested
+    StarAssetId  = "rbxassetid://241594819",   -- Falling stars
+    GifAssetId   = "rbxassetid://5860841663",  -- Decorative pulsing star
 
-    ESPColor = Color3.fromRGB(255, 255, 255),
-
-    -- Visuals
-    StarAssetId = "rbxassetid://241594819",          -- falling stars
-    GifAssetId  = "rbxassetid://5860841663",         -- decorative sparkle / gif-style asset
-    LightPurple = Color3.fromRGB(190, 145, 255),
+    LightPurple  = Color3.fromRGB(190, 145, 255),
     LightPurple2 = Color3.fromRGB(160, 110, 255),
+    ESPColor     = Color3.fromRGB(255, 255, 255),
 }
 
 ----------------------------------------------------------------
@@ -52,41 +44,33 @@ local STATE = {
     Cooldown       = 1.00,
     TargetRadius   = 50,
     Responsiveness = 650,
-
     BodyESP        = false,
 }
 
 ----------------------------------------------------------------
 -- INTERNAL
 ----------------------------------------------------------------
-local connections = {
-    anim         = nil,
-    blockChecker = nil,
-    charAdded    = nil,
-    espLoop      = nil,
-    starLoop     = nil,
-}
-
-local activeLockCleanup = nil
-local espHighlights     = {}
-local visualGui         = nil
+local Connections = {}
+local ActiveLockCleanup = nil
+local ESPObjects = {}          -- [Model] = Highlight
+local VisualGui = nil
 
 ----------------------------------------------------------------
 -- UTILS
 ----------------------------------------------------------------
-local function getCharParts()
-    local char = player.Character
-    if not char then return nil end
+local function GetCharParts()
+    local char = LocalPlayer.Character
+    if not char then return nil, nil, nil end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if humanoid and hrp then
         return char, humanoid, hrp
     end
-    return nil
+    return nil, nil, nil
 end
 
-local function fireDashQW()
-    local char = player.Character
+local function FireDashQW()
+    local char = LocalPlayer.Character
     if not char then return end
     local comm = char:FindFirstChild("Communicate")
     if comm and typeof(comm.FireServer) == "function" then
@@ -103,23 +87,22 @@ end
 ----------------------------------------------------------------
 -- TARGET FINDING
 ----------------------------------------------------------------
-local function findBestTarget(maxRadius)
-    maxRadius = maxRadius or STATE.TargetRadius
+local function FindBestTarget()
     local live = Workspace:FindFirstChild("Live")
     if not live then return nil end
 
-    local _, _, hrp = getCharParts()
+    local _, _, hrp = GetCharParts()
     if not hrp then return nil end
 
-    local bestRoot, bestDist = nil, maxRadius
+    local bestRoot, bestDist = nil, STATE.TargetRadius
 
     for _, model in ipairs(live:GetChildren()) do
-        if model:IsA("Model") and model ~= player.Character then
+        if model:IsA("Model") and model ~= LocalPlayer.Character then
             local root = model:FindFirstChild("HumanoidRootPart")
             local hum  = model:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 then
-                local isValid = (model.Name == "Weakest Dummy") or (Players:GetPlayerFromCharacter(model) ~= nil)
-                if isValid then
+                local valid = (model.Name == "Weakest Dummy") or (Players:GetPlayerFromCharacter(model) ~= nil)
+                if valid then
                     local dist = (root.Position - hrp.Position).Magnitude
                     if dist < bestDist then
                         bestDist = dist
@@ -135,7 +118,7 @@ end
 ----------------------------------------------------------------
 -- BLOCK DETECTION
 ----------------------------------------------------------------
-local function modelHasBlockingAnim(model)
+local function HasBlockingAnim(model)
     local hum = model and model:FindFirstChildOfClass("Humanoid")
     if not hum then return false end
 
@@ -144,10 +127,10 @@ local function modelHasBlockingAnim(model)
     end)
 
     if ok and tracks then
-        for _, t in ipairs(tracks) do
-            if t.Animation then
-                local aid = tostring(t.Animation.AnimationId or "")
-                if aid:find(CONFIG.BlockAnimId, 1, true) then
+        for _, track in ipairs(tracks) do
+            if track.Animation then
+                local id = tostring(track.Animation.AnimationId or "")
+                if id:find(CONFIG.BlockAnimId, 1, true) then
                     return true
                 end
             end
@@ -156,14 +139,14 @@ local function modelHasBlockingAnim(model)
     return false
 end
 
-local function scanForBlockingAnim()
+local function IsAnyoneBlocking()
     local live = Workspace:FindFirstChild("Live")
     if not live then return false end
 
     for _, model in ipairs(live:GetChildren()) do
-        if model:IsA("Model") and model ~= player.Character then
+        if model:IsA("Model") and model ~= LocalPlayer.Character then
             local hum = model:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 and modelHasBlockingAnim(model) then
+            if hum and hum.Health > 0 and HasBlockingAnim(model) then
                 return true
             end
         end
@@ -174,10 +157,10 @@ end
 ----------------------------------------------------------------
 -- HORIZONTAL LOCK
 ----------------------------------------------------------------
-local function startHorizontalLock(targetRoot, duration)
+local function StartHorizontalLock(targetRoot, duration)
     if not targetRoot or not targetRoot.Parent or duration <= 0 then return nil end
 
-    local _, humanoid, hrp = getCharParts()
+    local _, humanoid, hrp = GetCharParts()
     if not hrp or not humanoid then return nil end
 
     local startTime = tick()
@@ -220,22 +203,24 @@ local function startHorizontalLock(targetRoot, duration)
     end
 end
 
-local function cancelActiveLock()
-    if activeLockCleanup then
-        pcall(activeLockCleanup)
-        activeLockCleanup = nil
+local function CancelActiveLock()
+    if ActiveLockCleanup then
+        pcall(ActiveLockCleanup)
+        ActiveLockCleanup = nil
     end
-    local char = player.Character
+    local char = LocalPlayer.Character
     if char then
         local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then pcall(function() hum.AutoRotate = true end) end
+        if hum then
+            pcall(function() hum.AutoRotate = true end)
+        end
     end
 end
 
 ----------------------------------------------------------------
 -- MAIN SEQUENCE
 ----------------------------------------------------------------
-local function runSequence()
+local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
     STATE.Debounce = true
 
@@ -258,7 +243,7 @@ local function runSequence()
         return
     end
 
-    local char, humanoid, hrp = getCharParts()
+    local char, humanoid, hrp = GetCharParts()
     if not humanoid or not hrp then
         STATE.Debounce = false
         return
@@ -272,7 +257,7 @@ local function runSequence()
         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
     end)
 
-    fireDashQW()
+    FireDashQW()
 
     local t2 = tick()
     while tick() - t2 < waitRemote do
@@ -290,9 +275,9 @@ local function runSequence()
         return
     end
 
-    local target = findBestTarget()
+    local target = FindBestTarget()
     if target and not STATE.Blocked then
-        activeLockCleanup = startHorizontalLock(target, lockDur)
+        ActiveLockCleanup = StartHorizontalLock(target, lockDur)
     end
 
     task.spawn(function()
@@ -314,9 +299,9 @@ local function runSequence()
     end)
 
     task.delay(lockDur, function()
-        if activeLockCleanup then
-            pcall(activeLockCleanup)
-            activeLockCleanup = nil
+        if ActiveLockCleanup then
+            pcall(ActiveLockCleanup)
+            ActiveLockCleanup = nil
         end
     end)
 
@@ -328,184 +313,172 @@ end
 ----------------------------------------------------------------
 -- ANIMATION + BLOCK
 ----------------------------------------------------------------
-local function onAnimationPlayed(track)
+local function OnAnimationPlayed(track)
     if not STATE.Enabled or STATE.Debounce or STATE.Blocked then return end
     if not track or not track.Animation then return end
 
     local id = tostring(track.Animation.AnimationId or "")
     if id == CONFIG.AnimDetectId or id:find(CONFIG.AnimDetectId, 1, true) then
-        task.spawn(runSequence)
+        task.spawn(RunSequence)
     end
 end
 
-local function hookCharacter()
-    if connections.anim then
-        pcall(function() connections.anim:Disconnect() end)
-        connections.anim = nil
+local function HookCharacter()
+    if Connections.Anim then
+        pcall(function() Connections.Anim:Disconnect() end)
+        Connections.Anim = nil
     end
 
-    local char = player.Character
+    local char = LocalPlayer.Character
     if not char then return end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
-        connections.anim = humanoid.AnimationPlayed:Connect(onAnimationPlayed)
+        Connections.Anim = humanoid.AnimationPlayed:Connect(OnAnimationPlayed)
     end
 end
 
-local function startBlockChecker()
-    if connections.blockChecker then
-        pcall(function() connections.blockChecker:Disconnect() end)
-        connections.blockChecker = nil
+local function StartBlockChecker()
+    if Connections.BlockChecker then
+        pcall(function() Connections.BlockChecker:Disconnect() end)
+        Connections.BlockChecker = nil
     end
 
     local last = 0
-    connections.blockChecker = RunService.Heartbeat:Connect(function(dt)
+    Connections.BlockChecker = RunService.Heartbeat:Connect(function(dt)
         if not STATE.Enabled then return end
         last += dt
         if last < 0.12 then return end
         last = 0
 
-        local found = scanForBlockingAnim()
+        local found = IsAnyoneBlocking()
         if found and not STATE.Blocked then
             STATE.Blocked = true
-            cancelActiveLock()
-            if connections.anim then
-                pcall(function() connections.anim:Disconnect() end)
-                connections.anim = nil
+            CancelActiveLock()
+            if Connections.Anim then
+                pcall(function() Connections.Anim:Disconnect() end)
+                Connections.Anim = nil
             end
         elseif not found and STATE.Blocked then
             STATE.Blocked = false
-            if STATE.Enabled then hookCharacter() end
+            if STATE.Enabled then HookCharacter() end
         end
     end)
 end
 
 ----------------------------------------------------------------
--- BODY ESP
+-- BODY ESP  (FIXED: ONE Highlight per character)
 ----------------------------------------------------------------
-local function clearESP()
-    for model, list in pairs(espHighlights) do
-        for _, h in ipairs(list) do
-            pcall(function() h:Destroy() end)
-        end
+local function ClearAllESP()
+    for model, highlight in pairs(ESPObjects) do
+        pcall(function() highlight:Destroy() end)
     end
-    table.clear(espHighlights)
+    table.clear(ESPObjects)
 end
 
-local function applyESPToModel(model)
-    if not model or not model:IsA("Model") or model == player.Character then return end
-    if espHighlights[model] then return end
+local function ApplyESP(model)
+    if not model or not model:IsA("Model") or model == LocalPlayer.Character then return end
+    if ESPObjects[model] then return end
 
-    local list = {}
-    for _, partName in ipairs(CONFIG.BodyParts) do
-        local part = model:FindFirstChild(partName)
-        if part and part:IsA("BasePart") then
-            local highlight = Instance.new("Highlight")
-            highlight.Name = "JalineBodyESP"
-            highlight.Adornee = part
-            highlight.FillColor = CONFIG.ESPColor
-            highlight.OutlineColor = CONFIG.ESPColor
-            highlight.FillTransparency = 0.55
-            highlight.OutlineTransparency = 0
-            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-            highlight.Parent = part
-            table.insert(list, highlight)
-        end
-    end
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "JalineESP"
+    highlight.Adornee = model                 -- whole character, one instance
+    highlight.FillColor = CONFIG.ESPColor
+    highlight.OutlineColor = CONFIG.ESPColor
+    highlight.FillTransparency = 0.55
+    highlight.OutlineTransparency = 0
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.Parent = model
 
-    if #list > 0 then
-        espHighlights[model] = list
+    ESPObjects[model] = highlight
+end
+
+local function RemoveESP(model)
+    local highlight = ESPObjects[model]
+    if highlight then
+        pcall(function() highlight:Destroy() end)
+        ESPObjects[model] = nil
     end
 end
 
-local function removeESPFromModel(model)
-    local list = espHighlights[model]
-    if list then
-        for _, h in ipairs(list) do
-            pcall(function() h:Destroy() end)
-        end
-        espHighlights[model] = nil
-    end
-end
-
-local function updateBodyESP()
+local function UpdateBodyESP()
     if not STATE.BodyESP then
-        clearESP()
+        ClearAllESP()
         return
     end
 
-    local live = Workspace:FindFirstChild("Live")
-    local targets = {}
+    local active = {}
 
+    local live = Workspace:FindFirstChild("Live")
     if live then
         for _, model in ipairs(live:GetChildren()) do
-            if model:IsA("Model") and model ~= player.Character then
+            if model:IsA("Model") and model ~= LocalPlayer.Character then
                 local hum = model:FindFirstChildOfClass("Humanoid")
                 if hum and hum.Health > 0 then
-                    targets[model] = true
-                    applyESPToModel(model)
+                    active[model] = true
+                    ApplyESP(model)
                 end
             end
         end
     end
 
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character then
+        if plr ~= LocalPlayer and plr.Character then
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 then
-                targets[plr.Character] = true
-                applyESPToModel(plr.Character)
+                active[plr.Character] = true
+                ApplyESP(plr.Character)
             end
         end
     end
 
-    for model in pairs(espHighlights) do
-        if not targets[model] or not model.Parent then
-            removeESPFromModel(model)
+    for model in pairs(ESPObjects) do
+        if not active[model] or not model.Parent then
+            RemoveESP(model)
         end
     end
 end
 
-local function startBodyESP()
-    if connections.espLoop then return end
+local function StartBodyESP()
+    if Connections.ESP then return end
 
-    connections.espLoop = RunService.Heartbeat:Connect(function()
+    Connections.ESP = RunService.Heartbeat:Connect(function()
         if STATE.BodyESP then
-            updateBodyESP()
+            UpdateBodyESP()
         end
     end)
 
-    local function onCharAdded(char)
-        task.wait(0.4)
-        if STATE.BodyESP then applyESPToModel(char) end
+    local function onChar(char)
+        task.wait(0.35)
+        if STATE.BodyESP then ApplyESP(char) end
     end
 
     for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player then
-            plr.CharacterAdded:Connect(onCharAdded)
-            if plr.Character then onCharAdded(plr.Character) end
+        if plr ~= LocalPlayer then
+            plr.CharacterAdded:Connect(onChar)
+            if plr.Character then onChar(plr.Character) end
         end
     end
 
     Players.PlayerAdded:Connect(function(plr)
-        plr.CharacterAdded:Connect(onCharAdded)
+        plr.CharacterAdded:Connect(onChar)
     end)
 end
 
-local function stopBodyESP()
-    if connections.espLoop then
-        pcall(function() connections.espLoop:Disconnect() end)
-        connections.espLoop = nil
+local function StopBodyESP()
+    if Connections.ESP then
+        pcall(function() Connections.ESP:Disconnect() end)
+        Connections.ESP = nil
     end
-    clearESP()
+    ClearAllESP()
 end
 
 ----------------------------------------------------------------
--- BG FALLING STARS + DECORATIVE GIF ASSET
+-- FALLING STARS + DECORATIVE PULSING STAR
 ----------------------------------------------------------------
-local function createVisuals()
-    if visualGui then
-        pcall(function() visualGui:Destroy() end)
+local function CreateVisuals()
+    if VisualGui then
+        pcall(function() VisualGui:Destroy() end)
+        VisualGui = nil
     end
 
     local gui = Instance.new("ScreenGui")
@@ -517,86 +490,84 @@ local function createVisuals()
 
     pcall(function() gui.Parent = CoreGui end)
     if not gui.Parent then
-        gui.Parent = player:WaitForChild("PlayerGui")
+        gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
     end
 
     local container = Instance.new("Frame")
     container.Name = "Container"
     container.Size = UDim2.fromScale(1, 1)
     container.BackgroundTransparency = 1
-    container.BorderSizePixel = 0
     container.ClipsDescendants = true
     container.Parent = gui
 
-    visualGui = gui
+    VisualGui = gui
 
-    -- Decorative GIF-style asset (top right, pulsing)
-    local gif = Instance.new("ImageLabel")
-    gif.Name = "DecorGif"
-    gif.Size = UDim2.fromOffset(90, 90)
-    gif.Position = UDim2.new(0.92, 0, 0.08, 0)
-    gif.AnchorPoint = Vector2.new(0.5, 0.5)
-    gif.BackgroundTransparency = 1
-    gif.Image = CONFIG.GifAssetId
-    gif.ImageColor3 = CONFIG.LightPurple
-    gif.ImageTransparency = 0.25
-    gif.ScaleType = Enum.ScaleType.Fit
-    gif.ZIndex = 3
-    gif.Parent = container
+    -- Decorative pulsing star (exact asset you requested)
+    local decor = Instance.new("ImageLabel")
+    decor.Name = "DecorStar"
+    decor.AnchorPoint = Vector2.new(0.5, 0.5)
+    decor.Position = UDim2.new(0.92, 0, 0.09, 0)
+    decor.Size = UDim2.fromOffset(88, 88)
+    decor.BackgroundTransparency = 1
+    decor.Image = CONFIG.GifAssetId          -- rbxassetid://5860841663
+    decor.ImageColor3 = CONFIG.LightPurple
+    decor.ImageTransparency = 0.22
+    decor.ScaleType = Enum.ScaleType.Fit
+    decor.ZIndex = 3
+    decor.Parent = container
 
-    -- Soft pulse for the decorative asset
     task.spawn(function()
-        while gif and gif.Parent do
-            local t1 = TweenService:Create(gif, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.fromOffset(105, 105),
-                ImageTransparency = 0.08
+        while decor and decor.Parent do
+            local up = TweenService:Create(decor, TweenInfo.new(1.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Size = UDim2.fromOffset(102, 102),
+                ImageTransparency = 0.06
             })
-            t1:Play()
-            t1.Completed:Wait()
+            up:Play()
+            up.Completed:Wait()
 
-            local t2 = TweenService:Create(gif, TweenInfo.new(1.6, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.fromOffset(85, 85),
-                ImageTransparency = 0.38
+            local down = TweenService:Create(decor, TweenInfo.new(1.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Size = UDim2.fromOffset(84, 84),
+                ImageTransparency = 0.35
             })
-            t2:Play()
-            t2.Completed:Wait()
+            down:Play()
+            down.Completed:Wait()
         end
     end)
 
-    -- Falling stars background animation
-    connections.starLoop = RunService.Heartbeat:Connect(function()
-        if not container or not container.Parent then return end
+    -- Falling stars (exact asset you requested)
+    if Connections.StarLoop then
+        pcall(function() Connections.StarLoop:Disconnect() end)
+    end
 
-        if math.random() > 0.032 then return end
+    Connections.StarLoop = RunService.Heartbeat:Connect(function()
+        if not container or not container.Parent then return end
+        if math.random() > 0.031 then return end
 
         local star = Instance.new("ImageLabel")
         star.Name = "FallingStar"
         star.BackgroundTransparency = 1
-        star.Image = CONFIG.StarAssetId
+        star.Image = CONFIG.StarAssetId       -- rbxassetid://241594819
         star.ImageColor3 = CONFIG.LightPurple
-        star.ImageTransparency = math.random(20, 55) / 100
+        star.ImageTransparency = math.random(18, 52) / 100
         star.ScaleType = Enum.ScaleType.Fit
         star.ZIndex = 1
 
-        local size = math.random(9, 18)
+        local size = math.random(9, 17)
         star.Size = UDim2.fromOffset(size, size)
-
-        local startX = math.random()
-        star.Position = UDim2.new(startX, 0, -0.05, 0)
+        star.Position = UDim2.new(math.random(), 0, -0.05, 0)
         star.Parent = container
 
-        local duration = math.random(40, 85) / 10
-        local drift = (math.random() - 0.5) * 0.2
+        local duration = math.random(42, 88) / 10
+        local drift = (math.random() - 0.5) * 0.18
 
-        local tween = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-            Position = UDim2.new(startX + drift, 0, 1.1, 0),
+        local tw = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+            Position = UDim2.new(star.Position.X.Scale + drift, 0, 1.08, 0),
             ImageTransparency = 1,
-            Rotation = math.random(-60, 60)
+            Rotation = math.random(-55, 55)
         })
-        tween:Play()
-
-        tween.Completed:Connect(function()
-            if star then star:Destroy() end
+        tw:Play()
+        tw.Completed:Connect(function()
+            star:Destroy()
         end)
     end)
 end
@@ -604,39 +575,36 @@ end
 ----------------------------------------------------------------
 -- SETUP / UNLOAD
 ----------------------------------------------------------------
-local function dashSetup()
-    hookCharacter()
-    startBlockChecker()
+local function DashSetup()
+    HookCharacter()
+    StartBlockChecker()
 
-    if connections.charAdded then
-        pcall(function() connections.charAdded:Disconnect() end)
+    if Connections.CharAdded then
+        pcall(function() Connections.CharAdded:Disconnect() end)
     end
 
-    connections.charAdded = player.CharacterAdded:Connect(function()
-        task.wait(0.7)
-        if STATE.Enabled then hookCharacter() end
+    Connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(0.65)
+        if STATE.Enabled then HookCharacter() end
     end)
 end
 
-local function dashUnload()
-    for name, conn in pairs(connections) do
-        if name ~= "starLoop" and conn then
+local function DashUnload()
+    for name, conn in pairs(Connections) do
+        if name ~= "StarLoop" and conn then
             pcall(function() conn:Disconnect() end)
-            connections[name] = nil
+            Connections[name] = nil
         end
     end
-
-    cancelActiveLock()
+    CancelActiveLock()
     STATE.Debounce = false
     STATE.Blocked  = false
 end
 
-player.CharacterRemoving:Connect(function()
-    cancelActiveLock()
-end)
+LocalPlayer.CharacterRemoving:Connect(CancelActiveLock)
 
 ----------------------------------------------------------------
--- CUSTOM THEME (Black + Light Purple)
+-- THEME (Black + Light Purple)
 ----------------------------------------------------------------
 local CustomTheme = {
     WindowColor = ColorSequence.new({
@@ -690,8 +658,7 @@ local Window = Rayfield:CreateWindow({
     },
 })
 
--- Create falling stars + decorative GIF asset
-task.defer(createVisuals)
+task.defer(CreateVisuals)
 
 local Tab = Window:CreateTab({
     name = "Jaline Dash",
@@ -706,45 +673,29 @@ Tab:CreateToggle({
     callback = function(value)
         STATE.Enabled = value
         if value then
-            dashSetup()
-            Window:Notify({
-                title = "Jaline Dash",
-                content = "ENABLED",
-                duration = 2.5,
-            })
+            DashSetup()
+            Window:Notify({ title = "Jaline Dash", content = "ENABLED", duration = 2.5 })
         else
-            dashUnload()
-            Window:Notify({
-                title = "Jaline Dash",
-                content = "DISABLED",
-                duration = 2.5,
-            })
+            DashUnload()
+            Window:Notify({ title = "Jaline Dash", content = "DISABLED", duration = 2.5 })
         end
     end,
 })
 
 Tab:CreateToggle({
     name = "Body ESP",
-    description = "White highlight on Head, Torso, Arms & Legs",
+    description = "White highlight on entire body (one Highlight per character)",
     flag = "BodyESP",
     value = false,
     callback = function(value)
         STATE.BodyESP = value
         if value then
-            startBodyESP()
-            updateBodyESP()
-            Window:Notify({
-                title = "Body ESP",
-                content = "ENABLED • White",
-                duration = 2,
-            })
+            StartBodyESP()
+            UpdateBodyESP()
+            Window:Notify({ title = "Body ESP", content = "ENABLED • White", duration = 2 })
         else
-            stopBodyESP()
-            Window:Notify({
-                title = "Body ESP",
-                content = "DISABLED",
-                duration = 2,
-            })
+            StopBodyESP()
+            Window:Notify({ title = "Body ESP", content = "DISABLED", duration = 2 })
         end
     end,
 })
@@ -789,4 +740,4 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
-print("[Jaline Dash] Loaded • Black + Light Purple + Falling Stars + GIF Asset")
+print("[Jaline Dash] Loaded • Fixed Highlight + Exact Star Assets")
