@@ -1,9 +1,9 @@
 --[[
-    Jaline Hub - Loop Dash v2 (Fully Fixed & Advanced)
-    Author: Jaline
+    Jaline Hub - Loop Dash v2 (Rayfield Gen2)
+    Fully fixed, advanced & polished
 ]]
 
-local WindUI = loadstring(game:HttpGet("https://github.com/Footagesus/WindUI/releases/latest/download/main.lua"))()
+local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
 local Players           = game:GetService("Players")
 local RunService        = game:GetService("RunService")
@@ -44,124 +44,12 @@ local STATE = {
 }
 
 ----------------------------------------------------------------
--- UI
-----------------------------------------------------------------
-local Win = WindUI:CreateWindow({
-    Title               = "Jaline Hub",
-    Icon                = "rbxassetid://88536674439005",
-    Author              = "Jaline",
-    Folder              = "JalineHub",
-    Size                = UDim2.fromOffset(650, 550),
-    Theme               = "Dark",
-    HideSearchBar       = false,
-    NewElements         = true,
-    SideBarWidth        = 200,
-    HidePanelBackground = false,
-})
-
-local Tabs = {
-    LoopDashv2 = Win:Tab({
-        Title  = "Loop Dash v2",
-        Icon   = "lucide:refresh-ccw-dot",
-        Opened = true
-    }),
-}
-
-Tabs.LoopDashv2:Paragraph({
-    Title     = "Loop Dash v2 / Rework",
-    Desc      = "Advanced loop dash with force jump support (oreo tech ready).",
-    Image     = "lucide:refresh-ccw-dot",
-    ImageSize = 20,
-    Color     = Color3.fromHex("#4ecdc4")
-})
-
-Tabs.LoopDashv2:Toggle({
-    Title = "LoopDash v2 Enabled",
-    Flag  = "Save23",
-    Value = STATE.loopRework,
-    Callback = function(state)
-        STATE.loopRework = state
-        if state then
-            loopReworkSetup()
-        else
-            loopReworkUnload()
-        end
-        WindUI:Notify({
-            Title    = "LoopDash v2",
-            Content  = state and "ENABLED" or "DISABLED",
-            Icon     = state and "lucide:check" or "lucide:x",
-            Duration = 2
-        })
-    end
-})
-
-Tabs.LoopDashv2:Toggle({
-    Title = "Jump Assist (Oreo)",
-    Flag  = "Save24",
-    Desc  = "Forces a strong upward velocity for oreo tech.",
-    Value = STATE.ForceJumpEnabled,
-    Callback = function(state)
-        STATE.ForceJumpEnabled = state
-        if state then
-            forceJumpSetup()
-        else
-            forceJumpUnload()
-        end
-    end
-})
-
-Tabs.LoopDashv2:Slider({
-    Title = "Jump Height",
-    Flag  = "Save25",
-    Value = { Min = 10, Max = 100, Default = STATE.ForceJumpUpwardVelocity },
-    Callback = function(value)
-        STATE.ForceJumpUpwardVelocity = value
-    end
-})
-
-Tabs.LoopDashv2:Slider({
-    Title = "Detect Delay (s)",
-    Flag  = "Save26",
-    Value = { Min = 0, Max = 2, Default = STATE.loopReworkWaitDetect },
-    Callback = function(value)
-        STATE.loopReworkWaitDetect = value
-    end
-})
-
-Tabs.LoopDashv2:Slider({
-    Title = "First Flick Delay (s)",
-    Flag  = "Save27",
-    Value = { Min = 0, Max = 1, Default = STATE.loopReworkWaitRemote },
-    Callback = function(value)
-        STATE.loopReworkWaitRemote = value
-    end
-})
-
-Tabs.LoopDashv2:Slider({
-    Title = "Lock Duration (s)",
-    Flag  = "Save28",
-    Value = { Min = 0.2, Max = 3, Default = STATE.loopReworkLockDuration },
-    Callback = function(value)
-        STATE.loopReworkLockDuration = value
-    end
-})
-
-Tabs.LoopDashv2:Slider({
-    Title = "Smoothness / Responsiveness",
-    Flag  = "Save29",
-    Value = { Min = 1, Max = 1000, Default = STATE.loopReworkResponsiveness },
-    Callback = function(value)
-        STATE.loopReworkResponsiveness = value
-    end
-})
-
-----------------------------------------------------------------
 -- INTERNAL STATE
 ----------------------------------------------------------------
 local connections = {
-    anim          = nil,
-    blockChecker  = nil,
-    charAdded     = nil,
+    anim           = nil,
+    blockChecker   = nil,
+    charAdded      = nil,
     forceCharAdded = nil,
 }
 
@@ -281,7 +169,7 @@ local function scanForBlockingAnim()
 end
 
 ----------------------------------------------------------------
--- HORIZONTAL LOCK (completely rewritten - clean & stable)
+-- HORIZONTAL LOCK (clean & stable)
 ----------------------------------------------------------------
 local function startHorizontalLock(targetRoot, duration)
     if not targetRoot or not targetRoot.Parent or duration <= 0 then
@@ -307,14 +195,11 @@ local function startHorizontalLock(targetRoot, duration)
         local hrpPos = hrp.Position
         local lookAt = Vector3.new(targetRoot.Position.X, hrpPos.Y, targetRoot.Position.Z)
 
-        if (lookAt - hrpPos).Magnitude < 0.01 then
-            -- already facing
-        else
+        if (lookAt - hrpPos).Magnitude >= 0.01 then
             local desired = CFrame.new(hrpPos, lookAt)
             local resp = math.clamp(STATE.loopReworkResponsiveness, 1, 10000)
 
             if resp >= 950 then
-                -- instant
                 pcall(function() hrp.CFrame = desired end)
             else
                 local alpha = 1 - math.exp(-0.025 * resp * dt)
@@ -386,7 +271,6 @@ local function forceJumpDoJump(humanoid, hrp)
             local curr = hrp.AssemblyLinearVelocity
             hrp.AssemblyLinearVelocity = Vector3.new(curr.X, upward, curr.Z)
         end)
-        -- fallback for older engines
         pcall(function()
             local v = hrp.Velocity
             hrp.Velocity = Vector3.new(v.X, upward, v.Z)
@@ -439,7 +323,6 @@ local function runSequence()
     local lockDur     = STATE.loopReworkLockDuration
     local cooldown    = STATE.loopReworkCooldown
 
-    -- Detect delay
     local t0 = tick()
     while tick() - t0 < waitDetect do
         if not STATE.loopRework or STATE.loopReworkBlocked then
@@ -463,7 +346,6 @@ local function runSequence()
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
 
-    -- Jump
     if STATE.ForceJumpEnabled then
         forceJumpSetup()
         forceJumpUpdateCharacter(char)
@@ -481,7 +363,6 @@ local function runSequence()
         end)
     end
 
-    -- Wait after jump
     local t1 = tick()
     while tick() - t1 < waitJump do
         if not STATE.loopRework or STATE.loopReworkBlocked then
@@ -498,10 +379,8 @@ local function runSequence()
         return
     end
 
-    -- Fire remote
     fireDashQW()
 
-    -- Wait before lock
     local t2 = tick()
     while tick() - t2 < waitRemote do
         if not STATE.loopRework or STATE.loopReworkBlocked then
@@ -518,13 +397,11 @@ local function runSequence()
         return
     end
 
-    -- Start lock
     local target = findBestTarget()
     if target and not STATE.loopReworkBlocked then
         activeLockCleanup = startHorizontalLock(target, lockDur)
     end
 
-    -- Keep AutoRotate off during lock
     task.spawn(function()
         local keepUntil = tick() + math.max(lockDur, 1.0)
         while tick() < keepUntil do
@@ -543,7 +420,6 @@ local function runSequence()
         end)
     end)
 
-    -- Cleanup lock after duration
     task.delay(lockDur, function()
         if activeLockCleanup then
             pcall(activeLockCleanup)
@@ -551,7 +427,6 @@ local function runSequence()
         end
     end)
 
-    -- Cooldown
     task.delay(cooldown, function()
         STATE.loopReworkDebounce = false
     end)
@@ -624,7 +499,7 @@ end
 ----------------------------------------------------------------
 -- SETUP / UNLOAD
 ----------------------------------------------------------------
-function loopReworkSetup()
+local function loopReworkSetup()
     hookCharacter()
     startBlockChecker()
 
@@ -642,8 +517,7 @@ function loopReworkSetup()
     forceJumpSetup()
 end
 
-function loopReworkUnload()
-    -- Disconnect everything
+local function loopReworkUnload()
     for _, conn in pairs(connections) do
         if conn then
             pcall(function() conn:Disconnect() end)
@@ -660,9 +534,127 @@ function loopReworkUnload()
     STATE.loopReworkBlocked  = false
 end
 
--- Safety: clean up when player leaves
 player.CharacterRemoving:Connect(function()
     cancelActiveLock()
 end)
 
-print("[Jaline Hub] Loop Dash v2 fully loaded & fixed.")
+----------------------------------------------------------------
+-- UI (Rayfield Gen2)
+----------------------------------------------------------------
+local Window = Rayfield:CreateWindow({
+    name = "Jaline Hub",
+    subtitle = "Loop Dash v2",
+    theme = "cobalt",
+    configuration = {
+        autoSave = true,
+        autoLoad = true,
+        fileName = "JalineHub",
+    },
+})
+
+local Tab = Window:CreateTab({
+    name = "Loop Dash v2",
+    icon = 93364949241311,
+})
+
+Tab:CreateToggle({
+    name = "LoopDash v2 Enabled",
+    flag = "LoopDashEnabled",
+    value = STATE.loopRework,
+    callback = function(value)
+        STATE.loopRework = value
+        if value then
+            loopReworkSetup()
+            Window:Notify({
+                title = "LoopDash v2",
+                content = "ENABLED",
+                duration = 2,
+            })
+        else
+            loopReworkUnload()
+            Window:Notify({
+                title = "LoopDash v2",
+                content = "DISABLED",
+                duration = 2,
+            })
+        end
+    end,
+})
+
+Tab:CreateToggle({
+    name = "Jump Assist (Oreo)",
+    description = "Forces strong upward velocity for oreo tech",
+    flag = "ForceJumpEnabled",
+    value = STATE.ForceJumpEnabled,
+    callback = function(value)
+        STATE.ForceJumpEnabled = value
+        if value then
+            forceJumpSetup()
+        else
+            forceJumpUnload()
+        end
+    end,
+})
+
+Tab:CreateSlider({
+    name = "Jump Height",
+    flag = "JumpHeight",
+    range = {10, 100},
+    increment = 1,
+    value = STATE.ForceJumpUpwardVelocity,
+    callback = function(value)
+        STATE.ForceJumpUpwardVelocity = value
+    end,
+})
+
+Tab:CreateSlider({
+    name = "Detect Delay",
+    description = "Seconds before sequence starts",
+    flag = "DetectDelay",
+    range = {0, 2},
+    increment = 0.05,
+    value = STATE.loopReworkWaitDetect,
+    suffix = "s",
+    callback = function(value)
+        STATE.loopReworkWaitDetect = value
+    end,
+})
+
+Tab:CreateSlider({
+    name = "First Flick Delay",
+    description = "Delay after jump before firing remote",
+    flag = "FlickDelay",
+    range = {0, 1},
+    increment = 0.05,
+    value = STATE.loopReworkWaitRemote,
+    suffix = "s",
+    callback = function(value)
+        STATE.loopReworkWaitRemote = value
+    end,
+})
+
+Tab:CreateSlider({
+    name = "Lock Duration",
+    flag = "LockDuration",
+    range = {0.2, 3},
+    increment = 0.1,
+    value = STATE.loopReworkLockDuration,
+    suffix = "s",
+    callback = function(value)
+        STATE.loopReworkLockDuration = value
+    end,
+})
+
+Tab:CreateSlider({
+    name = "Smoothness / Responsiveness",
+    description = "Higher = snappier lock",
+    flag = "Responsiveness",
+    range = {1, 1000},
+    increment = 1,
+    value = STATE.loopReworkResponsiveness,
+    callback = function(value)
+        STATE.loopReworkResponsiveness = value
+    end,
+})
+
+print("[Jaline Hub] Loaded with Rayfield Gen2")
