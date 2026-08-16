@@ -2,15 +2,14 @@
 
 **Premium Edition**
 
-Black UI • Light Purple Glow • Falling Stars
+Black UI • Light Purple Glow • Centered Star Crosshair • Falling Stars
 
 ## Features
 
 - **Jaline Dash** — Advanced loop dash
-- **Body ESP** — Pure white body part highlights
-- Custom black theme with light purple accents & glow
-- Falling star background animation
-- Decorative pulsing star asset
+- **Body ESP** — White body part highlights
+- **Star Crosshair** — Clean light purple star fixed in the center of the screen
+- **Falling Stars** — Soft refined background animation
 - Full config saving
 
 ## Loadstring
@@ -19,4 +18,4 @@ Black UI • Light Purple Glow • Falling Stars
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ideBob/Jaline-Hub/main/JalineHub.lua"))()
 ```
 
-Enjoy the vibe.
+Enjoy.

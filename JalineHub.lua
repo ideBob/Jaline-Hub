@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    Black UI + Light Purple Glow + Falling Stars
+    Black + Light Purple • Centered Star Crosshair • Falling Stars
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -30,12 +30,12 @@ local CONFIG = {
         "Right Leg", "RightUpperLeg", "RightLowerLeg", "RightFoot",
     },
 
-    ESPColor = Color3.fromRGB(255, 255, 255),
+    ESPColor     = Color3.fromRGB(255, 255, 255),
 
     -- Visuals
-    StarAssetId = "rbxassetid://241594819",          -- classic star particle
-    GifAssetId  = "rbxassetid://5860841663",         -- bright star / sparkle (used as decorative gif-like)
-    LightPurple = Color3.fromRGB(190, 145, 255),
+    StarAssetId  = "rbxassetid://241594819",
+    CrosshairId  = "rbxassetid://241594819",
+    LightPurple  = Color3.fromRGB(190, 145, 255),
     LightPurple2 = Color3.fromRGB(160, 110, 255),
 }
 
@@ -69,7 +69,8 @@ local connections = {
 
 local activeLockCleanup = nil
 local espHighlights     = {}
-local starContainer     = nil
+local crosshairGui      = nil
+local starGui           = nil
 
 ----------------------------------------------------------------
 -- UTILS
@@ -501,25 +502,78 @@ local function stopBodyESP()
 end
 
 ----------------------------------------------------------------
--- FALLING STARS BACKGROUND + DECORATIVE GIF
+-- CENTERED STAR CROSSHAIR + FALLING STARS
 ----------------------------------------------------------------
-local function createStarBackground()
-    -- Create a dedicated ScreenGui so it always works
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "JalineDashStars"
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-    gui.IgnoreGuiInset = true
-    gui.DisplayOrder = 999
+local function createCrosshair()
+    if crosshairGui then
+        pcall(function() crosshairGui:Destroy() end)
+    end
 
-    pcall(function()
-        gui.Parent = CoreGui
-    end)
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "JalineCrosshair"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.DisplayOrder = 1000
+
+    pcall(function() gui.Parent = CoreGui end)
     if not gui.Parent then
         gui.Parent = player:WaitForChild("PlayerGui")
     end
 
-    -- Main black-ish container (semi transparent so it sits behind / blends)
+    -- Perfect center crosshair
+    local star = Instance.new("ImageLabel")
+    star.Name = "Crosshair"
+    star.AnchorPoint = Vector2.new(0.5, 0.5)
+    star.Position = UDim2.fromScale(0.5, 0.5)
+    star.Size = UDim2.fromOffset(22, 22)          -- small but not too small
+    star.BackgroundTransparency = 1
+    star.Image = CONFIG.CrosshairId
+    star.ImageColor3 = CONFIG.LightPurple
+    star.ImageTransparency = 0.08
+    star.ScaleType = Enum.ScaleType.Fit
+    star.ZIndex = 10
+    star.Parent = gui
+
+    -- Very subtle breathing so it feels alive but stays usable as crosshair
+    task.spawn(function()
+        while star and star.Parent do
+            local t1 = TweenService:Create(star, TweenInfo.new(2.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Size = UDim2.fromOffset(24, 24),
+                ImageTransparency = 0.02
+            })
+            t1:Play()
+            t1.Completed:Wait()
+
+            local t2 = TweenService:Create(star, TweenInfo.new(2.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Size = UDim2.fromOffset(20, 20),
+                ImageTransparency = 0.14
+            })
+            t2:Play()
+            t2.Completed:Wait()
+        end
+    end)
+
+    crosshairGui = gui
+end
+
+local function createFallingStars()
+    if starGui then
+        pcall(function() starGui:Destroy() end)
+    end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "JalineFallingStars"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.DisplayOrder = 5          -- behind crosshair & most UI
+
+    pcall(function() gui.Parent = CoreGui end)
+    if not gui.Parent then
+        gui.Parent = player:WaitForChild("PlayerGui")
+    end
+
     local container = Instance.new("Frame")
     container.Name = "StarContainer"
     container.Size = UDim2.fromScale(1, 1)
@@ -528,74 +582,43 @@ local function createStarBackground()
     container.ClipsDescendants = true
     container.Parent = gui
 
-    starContainer = container
+    starGui = gui
 
-    -- Decorative large "gif-like" star (subtle pulse)
-    local decor = Instance.new("ImageLabel")
-    decor.Name = "DecorStar"
-    decor.Size = UDim2.fromOffset(120, 120)
-    decor.Position = UDim2.new(0.85, 0, 0.12, 0)
-    decor.BackgroundTransparency = 1
-    decor.Image = CONFIG.GifAssetId
-    decor.ImageColor3 = CONFIG.LightPurple
-    decor.ImageTransparency = 0.35
-    decor.ScaleType = Enum.ScaleType.Fit
-    decor.ZIndex = 2
-    decor.Parent = container
-
-    -- Soft pulse animation for the decorative star
-    task.spawn(function()
-        while decor and decor.Parent do
-            local t1 = TweenService:Create(decor, TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                ImageTransparency = 0.15,
-                Size = UDim2.fromOffset(135, 135)
-            })
-            t1:Play()
-            t1.Completed:Wait()
-            local t2 = TweenService:Create(decor, TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                ImageTransparency = 0.45,
-                Size = UDim2.fromOffset(115, 115)
-            })
-            t2:Play()
-            t2.Completed:Wait()
-        end
-    end)
-
-    -- Falling stars loop
+    -- Refined falling stars (slower, fewer, prettier)
     connections.starLoop = RunService.Heartbeat:Connect(function()
         if not container or not container.Parent then return end
 
-        -- Spawn chance
-        if math.random() > 0.04 then return end
+        -- lower spawn rate for elegance
+        if math.random() > 0.028 then return end
 
         local star = Instance.new("ImageLabel")
         star.Name = "FallingStar"
         star.BackgroundTransparency = 1
         star.Image = CONFIG.StarAssetId
         star.ImageColor3 = CONFIG.LightPurple
-        star.ImageTransparency = math.random(20, 55) / 100
+        star.ImageTransparency = math.random(25, 60) / 100
         star.ScaleType = Enum.ScaleType.Fit
         star.ZIndex = 1
 
-        local size = math.random(10, 22)
+        local size = math.random(8, 16)
         star.Size = UDim2.fromOffset(size, size)
 
         local startX = math.random()
-        star.Position = UDim2.new(startX, 0, -0.05, 0)
+        star.Position = UDim2.new(startX, 0, -0.06, 0)
         star.Parent = container
 
-        local duration = math.random(35, 70) / 10
-        local endX = startX + (math.random(-15, 15) / 100)
+        local duration = math.random(45, 90) / 10   -- slower fall
+        local drift = (math.random() - 0.5) * 0.18
 
         local tween = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
-            Position = UDim2.new(endX, 0, 1.1, 0),
+            Position = UDim2.new(startX + drift, 0, 1.08, 0),
             ImageTransparency = 1,
-            Rotation = math.random(-40, 40)
+            Rotation = math.random(-50, 50)
         })
         tween:Play()
 
         tween.Completed:Connect(function()
-            star:Destroy()
+            if star then star:Destroy() end
         end)
     end)
 end
@@ -689,8 +712,11 @@ local Window = Rayfield:CreateWindow({
     },
 })
 
--- Start the star background right after window creation
-task.defer(createStarBackground)
+-- Create crosshair + falling stars
+task.defer(function()
+    createCrosshair()
+    createFallingStars()
+end)
 
 local Tab = Window:CreateTab({
     name = "Jaline Dash",
@@ -788,4 +814,4 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
-print("[Jaline Dash] Loaded • Black + Light Purple + Falling Stars")
+print("[Jaline Dash] Loaded • Centered Crosshair + Falling Stars")
