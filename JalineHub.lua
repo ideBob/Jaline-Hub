@@ -1,17 +1,17 @@
 --[[
     Jaline Dash
     Premium Edition
-    Black + Light Purple • Falling Stars • Decorative Pulsing Star
-    Optimized Highlight Performance
+    + Activate Auto Block
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
-local Players      = game:GetService("Players")
-local RunService   = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
-local Workspace    = game:GetService("Workspace")
-local CoreGui      = game:GetService("CoreGui")
+local Players            = game:GetService("Players")
+local RunService         = game:GetService("RunService")
+local TweenService       = game:GetService("TweenService")
+local Workspace          = game:GetService("Workspace")
+local CoreGui            = game:GetService("CoreGui")
+local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -29,13 +29,14 @@ local CONFIG = {
     LightPurple2 = Color3.fromRGB(160, 110, 255),
     ESPColor     = Color3.fromRGB(255, 255, 255),
 
-    ESPUpdateRate = 0.20, -- seconds between full ESP scans
+    ESPUpdateRate = 0.20,
 }
 
 ----------------------------------------------------------------
 -- STATE
 ----------------------------------------------------------------
 local STATE = {
+    -- Jaline Dash
     Enabled        = false,
     Debounce       = false,
     Blocked        = false,
@@ -45,7 +46,18 @@ local STATE = {
     Cooldown       = 1.00,
     TargetRadius   = 50,
     Responsiveness = 650,
+
+    -- Body ESP
     BodyESP        = false,
+
+    -- Auto Block
+    AutoBlock      = false,
+    M1AfterBlock   = false,
+    M1Catch        = false,
+    NormalRange    = 30,
+    SpecialRange   = 50,
+    SkillRange     = 50,
+    SkillDelay     = 1.2,
 }
 
 ----------------------------------------------------------------
@@ -53,8 +65,67 @@ local STATE = {
 ----------------------------------------------------------------
 local Connections = {}
 local ActiveLockCleanup = nil
-local ESPObjects = {} -- [Model] = Highlight
+local ESPObjects = {}
 local VisualGui = nil
+local LastCatch = 0
+
+----------------------------------------------------------------
+-- AUTO BLOCK DATA
+----------------------------------------------------------------
+local ComboIDs = {10480793962, 10480796021}
+
+local AllIDs = {
+    Saitama = {
+        10469493270, 10469630950, 10469639222, 10469643643,
+        special = 10479335397
+    },
+    Garou = {
+        13532562418, 13532600125, 13532604085, 13294471966,
+        special = 10479335397
+    },
+    Cyborg = {
+        13491635433, 13296577783, 13295919399, 13295936866,
+        special = 10479335397
+    },
+    Sonic = {
+        13370310513, 13390230973, 13378751717, 13378708199,
+        special = 13380255751
+    },
+    Metal = {
+        14004222985, 13997092940, 14001963401, 14136436157,
+        special = 13380255751
+    },
+    Blade = {
+        15259161390, 15240216931, 15240176873, 15162694192,
+        special = 13380255751
+    },
+    Tatsumaki = {
+        16515503507, 16515520431, 16515448089, 16552234590,
+        special = 10479335397
+    },
+    Dragon = {
+        17889458563, 17889461810, 17889471098, 17889290569,
+        special = 10479335397
+    },
+    Tech = {
+        123005629431309, 100059874351664, 104895379416342, 134775406437626,
+        special = 10479335397
+    }
+}
+
+local SkillIDs = {
+    [10468665991] = true, [10466974800] = true, [10471336737] = true, [12510170988] = true,
+    [12272894215] = true, [12296882427] = true, [12307656616] = true,
+    [101588604872680] = true, [105442749844047] = true, [109617620932970] = true,
+    [131820095363270] = true, [135289891173395] = true, [125955606488863] = true,
+    [12534735382] = true, [12502664044] = true, [12509505723] = true, [12618271998] = true, [12684390285] = true,
+    [13376869471] = true, [13294790250] = true, [13376962659] = true, [13501296372] = true, [13556985475] = true,
+    [145162735010] = true, [14046756619] = true, [14299135500] = true, [14351441234] = true,
+    [15290930205] = true, [15145462680] = true, [15295895753] = true, [15295336270] = true,
+    [16139108718] = true, [16515850153] = true, [16431491215] = true, [16597322398] = true, [16597912086] = true,
+    [17799224866] = true, [17838006839] = true, [17857788598] = true, [18179181663] = true,
+    [113166426814229] = true, [116753755471636] = true, [116153572280464] = true, [114095570398448] = true, [77509627104305] = true
+}
 
 ----------------------------------------------------------------
 -- UTILS
@@ -85,8 +156,24 @@ local function FireDashQW()
     end
 end
 
+local function FireRemote(goal, mobile)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local comm = char:FindFirstChild("Communicate")
+    if not comm then return end
+
+    local args = {{
+        Goal = goal,
+        Key = (goal == "KeyPress" or goal == "KeyRelease") and Enum.KeyCode.F or nil,
+        Mobile = mobile or nil
+    }}
+    pcall(function()
+        comm:FireServer(unpack(args))
+    end)
+end
+
 ----------------------------------------------------------------
--- TARGET FINDING
+-- TARGET FINDING (Jaline Dash)
 ----------------------------------------------------------------
 local function FindBestTarget()
     local live = Workspace:FindFirstChild("Live")
@@ -117,7 +204,7 @@ local function FindBestTarget()
 end
 
 ----------------------------------------------------------------
--- BLOCK DETECTION
+-- BLOCK DETECTION (Jaline Dash internal)
 ----------------------------------------------------------------
 local function HasBlockingAnim(model)
     local hum = model and model:FindFirstChildOfClass("Humanoid")
@@ -219,7 +306,7 @@ local function CancelActiveLock()
 end
 
 ----------------------------------------------------------------
--- MAIN SEQUENCE
+-- MAIN SEQUENCE (Jaline Dash)
 ----------------------------------------------------------------
 local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
@@ -312,7 +399,7 @@ local function RunSequence()
 end
 
 ----------------------------------------------------------------
--- ANIMATION + BLOCK
+-- ANIMATION + BLOCK (Jaline Dash)
 ----------------------------------------------------------------
 local function OnAnimationPlayed(track)
     if not STATE.Enabled or STATE.Debounce or STATE.Blocked then return end
@@ -367,6 +454,165 @@ local function StartBlockChecker()
 end
 
 ----------------------------------------------------------------
+-- AUTO BLOCK LOGIC
+----------------------------------------------------------------
+local function DoAfterBlock(hrp)
+    if not STATE.M1AfterBlock or not hrp or not LocalPlayer.Character then return end
+
+    local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    local dist = (hrp.Position - root.Position).Magnitude
+    if dist <= 10 then
+        FireRemote("LeftClick", true)
+        task.delay(0.3, function()
+            local newDist = (hrp.Position - root.Position).Magnitude
+            if newDist <= 10 then
+                FireRemote("LeftClickRelease", true)
+            end
+        end)
+    end
+end
+
+local function CheckAnims()
+    local live = Workspace:FindFirstChild("Live")
+    if not live then return end
+
+    local myChar = LocalPlayer.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character.Parent == live then
+            local char = player.Character
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+
+            if hrp and hum then
+                local dist = (hrp.Position - myHRP.Position).Magnitude
+                local animator = hum:FindFirstChildOfClass("Animator")
+
+                if animator then
+                    local anims = {}
+                    for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                        local id = tonumber(tostring(track.Animation.AnimationId):match("%d+"))
+                        if id then anims[id] = true end
+                    end
+
+                    local comboCount = 0
+                    for _, id in ipairs(ComboIDs) do
+                        if anims[id] then comboCount += 1 end
+                    end
+
+                    for _, group in pairs(AllIDs) do
+                        local normalHits, special = 0, anims[group.special]
+                        for i = 1, 4 do
+                            if anims[group[i]] then normalHits += 1 end
+                        end
+
+                        if comboCount == 2 and normalHits >= 2 and dist <= STATE.SpecialRange then
+                            FireRemote("KeyPress")
+                            task.wait(0.7)
+                            FireRemote("KeyRelease")
+                            break
+                        elseif normalHits > 0 and dist <= STATE.NormalRange then
+                            FireRemote("KeyPress")
+                            task.wait(0.15)
+                            FireRemote("KeyRelease")
+                            DoAfterBlock(hrp)
+                            break
+                        elseif special and dist <= STATE.SpecialRange and not STATE.M1Catch then
+                            FireRemote("KeyPress")
+                            task.delay(1, function()
+                                FireRemote("KeyRelease")
+                            end)
+                            break
+                        end
+                    end
+
+                    for animId in pairs(anims) do
+                        if SkillIDs[animId] and dist <= STATE.SkillRange then
+                            FireRemote("KeyPress")
+                            task.delay(STATE.SkillDelay, function()
+                                FireRemote("KeyRelease")
+                            end)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function CheckM1Catch()
+    if not STATE.M1Catch then return end
+
+    local live = Workspace:FindFirstChild("Live")
+    if not live then return end
+
+    local myChar = LocalPlayer.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return end
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character.Parent == live then
+            local char = player.Character
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildWhichIsA("Humanoid")
+
+            if hrp and hum then
+                local dist1 = (hrp.Position - myHRP.Position).Magnitude
+                if dist1 <= 30 then
+                    local animator = hum:FindFirstChildOfClass("Animator")
+                    if animator then
+                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                            local id = tonumber(tostring(track.Animation.AnimationId):match("%d+"))
+                            if id == 10479335397 then
+                                task.delay(0.1, function()
+                                    local dist2 = (hrp.Position - myHRP.Position).Magnitude
+                                    if dist2 < dist1 - 0.5 and tick() - LastCatch >= 5 then
+                                        LastCatch = tick()
+                                        FireRemote("LeftClick", true)
+                                        task.delay(0.2, function()
+                                            FireRemote("LeftClickRelease", true)
+                                        end)
+                                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.D, false, game)
+                                        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
+                                        task.delay(1, function()
+                                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Q, false, game)
+                                            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.D, false, game)
+                                        end)
+                                    end
+                                end)
+                                return
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function StartAutoBlock()
+    if Connections.AutoBlock then return end
+
+    Connections.AutoBlock = RunService.Heartbeat:Connect(function()
+        if not STATE.AutoBlock then return end
+        pcall(CheckAnims)
+        pcall(CheckM1Catch)
+    end)
+end
+
+local function StopAutoBlock()
+    if Connections.AutoBlock then
+        pcall(function() Connections.AutoBlock:Disconnect() end)
+        Connections.AutoBlock = nil
+    end
+end
+
+----------------------------------------------------------------
 -- BODY ESP (OPTIMIZED)
 ----------------------------------------------------------------
 local function ClearAllESP()
@@ -397,7 +643,6 @@ local function ApplyESP(model)
 
     ESPObjects[model] = highlight
 
-    -- Auto-clean when model leaves the game
     local conn
     conn = model.AncestryChanged:Connect(function(_, parent)
         if not parent then
@@ -462,11 +707,9 @@ local function StartBodyESP()
     local timer = 0
     Connections.ESP = RunService.Heartbeat:Connect(function(dt)
         if not STATE.BodyESP then return end
-
         timer += dt
         if timer < CONFIG.ESPUpdateRate then return end
         timer = 0
-
         UpdateBodyESP()
     end)
 
@@ -501,7 +744,7 @@ local function StopBodyESP()
 end
 
 ----------------------------------------------------------------
--- FALLING STARS + DECORATIVE PULSING STAR
+-- VISUALS
 ----------------------------------------------------------------
 local function CreateVisuals()
     if VisualGui then
@@ -617,7 +860,7 @@ end
 
 local function DashUnload()
     for name, conn in pairs(Connections) do
-        if name ~= "StarLoop" and conn then
+        if name ~= "StarLoop" and name ~= "AutoBlock" and conn then
             pcall(function() conn:Disconnect() end)
             Connections[name] = nil
         end
@@ -691,6 +934,12 @@ local Tab = Window:CreateTab({
     icon = 93364949241311,
 })
 
+local AutoBlockTab = Window:CreateTab({
+    name = "Auto Block",
+    icon = 93364949241311,
+})
+
+-- Jaline Dash Tab
 Tab:CreateToggle({
     name = "Jaline Dash",
     description = "Advanced loop dash system",
@@ -710,14 +959,14 @@ Tab:CreateToggle({
 
 Tab:CreateToggle({
     name = "Body ESP",
-    description = "Optimized white body highlight (one Highlight per character)",
+    description = "Optimized white body highlight",
     flag = "BodyESP",
     value = false,
     callback = function(value)
         STATE.BodyESP = value
         if value then
             StartBodyESP()
-            Window:Notify({ title = "Body ESP", content = "ENABLED • White", duration = 2 })
+            Window:Notify({ title = "Body ESP", content = "ENABLED", duration = 2 })
         else
             StopBodyESP()
             Window:Notify({ title = "Body ESP", content = "DISABLED", duration = 2 })
@@ -757,7 +1006,6 @@ Tab:CreateSlider({
 
 Tab:CreateSlider({
     name = "Smoothness",
-    description = "Higher = snappier lock",
     flag = "Smoothness",
     range = {50, 1000},
     increment = 10,
@@ -765,4 +1013,79 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
-print("[Jaline Dash] Loaded • Optimized Highlight Performance")
+-- Auto Block Tab
+AutoBlockTab:CreateToggle({
+    name = "Activate Auto Block",
+    description = "Detects enemy attacks and auto blocks",
+    flag = "AutoBlock",
+    value = false,
+    callback = function(value)
+        STATE.AutoBlock = value
+        if value then
+            StartAutoBlock()
+            Window:Notify({ title = "Auto Block", content = "ACTIVATED", duration = 2.5 })
+        else
+            StopAutoBlock()
+            Window:Notify({ title = "Auto Block", content = "DEACTIVATED", duration = 2.5 })
+        end
+    end,
+})
+
+AutoBlockTab:CreateToggle({
+    name = "M1 After Block",
+    description = "Punish with M1 after successful block",
+    flag = "M1AfterBlock",
+    value = false,
+    callback = function(value)
+        STATE.M1AfterBlock = value
+    end,
+})
+
+AutoBlockTab:CreateToggle({
+    name = "M1 Catch",
+    description = "Catch specials with M1 + dash",
+    flag = "M1Catch",
+    value = false,
+    callback = function(value)
+        STATE.M1Catch = value
+    end,
+})
+
+AutoBlockTab:CreateSlider({
+    name = "Normal Range",
+    flag = "NormalRange",
+    range = {10, 80},
+    increment = 1,
+    value = STATE.NormalRange,
+    callback = function(v) STATE.NormalRange = v end,
+})
+
+AutoBlockTab:CreateSlider({
+    name = "Special Range",
+    flag = "SpecialRange",
+    range = {10, 100},
+    increment = 1,
+    value = STATE.SpecialRange,
+    callback = function(v) STATE.SpecialRange = v end,
+})
+
+AutoBlockTab:CreateSlider({
+    name = "Skill Range",
+    flag = "SkillRange",
+    range = {10, 100},
+    increment = 1,
+    value = STATE.SkillRange,
+    callback = function(v) STATE.SkillRange = v end,
+})
+
+AutoBlockTab:CreateSlider({
+    name = "Skill Hold Delay",
+    flag = "SkillDelay",
+    range = {0.3, 3},
+    increment = 0.1,
+    value = STATE.SkillDelay,
+    suffix = "s",
+    callback = function(v) STATE.SkillDelay = v end,
+})
+
+print("[Jaline Dash] Loaded • Auto Block Integrated")
