@@ -1,15 +1,15 @@
 --[[
-    Jaline Hub - Loop Dash v2 (Rayfield Gen2)
-    Fully fixed, advanced & polished
+    Jaline Dash
+    Premium Loop Dash + White Body ESP
+    Fully advanced & polished
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
-local Players           = game:GetService("Players")
-local RunService        = game:GetService("RunService")
-local TweenService      = game:GetService("TweenService")
-local UserInputService  = game:GetService("UserInputService")
-local Workspace         = game:GetService("Workspace")
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local Workspace        = game:GetService("Workspace")
+local CollectionService = game:GetService("CollectionService")
 
 local player = Players.LocalPlayer
 
@@ -17,57 +17,57 @@ local player = Players.LocalPlayer
 -- CONFIG
 ----------------------------------------------------------------
 local CONFIG = {
-    loopReworkAnimDetectId = "10503381238",
-    loopReworkBlockAnimId  = "10471478869",
+    AnimDetectId = "10503381238",
+    BlockAnimId  = "10471478869",
+
+    -- Body parts we highlight
+    BodyParts = {
+        "Head",
+        "Torso", "UpperTorso", "LowerTorso", -- R6 + R15
+        "Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand",
+        "Right Arm", "RightUpperArm", "RightLowerArm", "RightHand",
+        "Left Leg", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+        "Right Leg", "RightUpperLeg", "RightLowerLeg", "RightFoot",
+    },
+
+    ESPColor = Color3.fromRGB(255, 255, 255), -- Pure white
 }
 
 ----------------------------------------------------------------
--- STATE (fully initialized)
+-- STATE
 ----------------------------------------------------------------
 local STATE = {
-    -- Core LoopDash
-    loopRework              = false,
-    loopReworkDebounce      = false,
-    loopReworkBlocked       = false,
-    loopReworkWaitDetect    = 0.3,   -- seconds
-    loopReworkWaitJump      = 0.0,   -- seconds
-    loopReworkWaitRemote    = 0.1,   -- seconds
-    loopReworkLockDuration  = 1.5,   -- seconds
-    loopReworkCooldown      = 1.0,   -- seconds
-    loopReworkTargetRadius  = 50,
-    loopReworkResponsiveness = 600,  -- higher = snappier
+    -- Jaline Dash
+    Enabled          = false,
+    Debounce         = false,
+    Blocked          = false,
+    WaitDetect       = 0.30,
+    WaitRemote       = 0.10,
+    LockDuration     = 1.50,
+    Cooldown         = 1.00,
+    TargetRadius     = 50,
+    Responsiveness   = 650,
 
-    -- Force Jump / Oreo
-    ForceJumpEnabled        = false,
-    ForceJumpUpwardVelocity = 52,
-    ForceJumpDebounceTime   = 0.18,  -- real seconds
+    -- Body ESP
+    BodyESP          = false,
 }
 
 ----------------------------------------------------------------
--- INTERNAL STATE
+-- INTERNAL
 ----------------------------------------------------------------
 local connections = {
-    anim           = nil,
-    blockChecker   = nil,
-    charAdded      = nil,
-    forceCharAdded = nil,
+    anim         = nil,
+    blockChecker = nil,
+    charAdded    = nil,
+    espLoop      = nil,
 }
 
 local activeLockCleanup = nil
-local forceJumpCanUse   = true
-local forceJumpChar     = nil
-local forceJumpHum      = nil
-local forceJumpHRP      = nil
+local espHighlights     = {} -- [Model] = {Highlight instances}
 
 ----------------------------------------------------------------
 -- UTILS
 ----------------------------------------------------------------
-local function safeDestroy(obj)
-    if obj and obj.Parent then
-        pcall(function() obj:Destroy() end)
-    end
-end
-
 local function getCharParts()
     local char = player.Character
     if not char then return nil end
@@ -84,13 +84,12 @@ local function fireDashQW()
     if not char then return end
     local comm = char:FindFirstChild("Communicate")
     if comm and typeof(comm.FireServer) == "function" then
-        local args = {{
-            Dash = Enum.KeyCode.W,
-            Key  = Enum.KeyCode.Q,
-            Goal = "KeyPress"
-        }}
         pcall(function()
-            comm:FireServer(unpack(args))
+            comm:FireServer({
+                Dash = Enum.KeyCode.W,
+                Key  = Enum.KeyCode.Q,
+                Goal = "KeyPress"
+            })
         end)
     end
 end
@@ -99,15 +98,14 @@ end
 -- TARGET FINDING
 ----------------------------------------------------------------
 local function findBestTarget(maxRadius)
-    maxRadius = maxRadius or STATE.loopReworkTargetRadius
+    maxRadius = maxRadius or STATE.TargetRadius
     local live = Workspace:FindFirstChild("Live")
     if not live then return nil end
 
     local _, _, hrp = getCharParts()
     if not hrp then return nil end
 
-    local bestRoot = nil
-    local bestDist = maxRadius
+    local bestRoot, bestDist = nil, maxRadius
 
     for _, model in ipairs(live:GetChildren()) do
         if model:IsA("Model") and model ~= player.Character then
@@ -117,7 +115,7 @@ local function findBestTarget(maxRadius)
                 local isValid = (model.Name == "Weakest Dummy") or (Players:GetPlayerFromCharacter(model) ~= nil)
                 if isValid then
                     local dist = (root.Position - hrp.Position).Magnitude
-                    if dist <= bestDist then
+                    if dist < bestDist then
                         bestDist = dist
                         bestRoot = root
                     end
@@ -132,8 +130,7 @@ end
 -- BLOCK DETECTION
 ----------------------------------------------------------------
 local function modelHasBlockingAnim(model)
-    if not model or not model.Parent then return false end
-    local hum = model:FindFirstChildOfClass("Humanoid")
+    local hum = model and model:FindFirstChildOfClass("Humanoid")
     if not hum then return false end
 
     local ok, tracks = pcall(function()
@@ -142,9 +139,9 @@ local function modelHasBlockingAnim(model)
 
     if ok and tracks then
         for _, t in ipairs(tracks) do
-            if t and t.Animation then
+            if t.Animation then
                 local aid = tostring(t.Animation.AnimationId or "")
-                if aid:find(CONFIG.loopReworkBlockAnimId, 1, true) then
+                if aid:find(CONFIG.BlockAnimId, 1, true) then
                     return true
                 end
             end
@@ -161,7 +158,7 @@ local function scanForBlockingAnim()
         if model:IsA("Model") and model ~= player.Character then
             local hum = model:FindFirstChildOfClass("Humanoid")
             if hum and hum.Health > 0 and modelHasBlockingAnim(model) then
-                return true, model
+                return true
             end
         end
     end
@@ -169,25 +166,23 @@ local function scanForBlockingAnim()
 end
 
 ----------------------------------------------------------------
--- HORIZONTAL LOCK (clean & stable)
+-- HORIZONTAL LOCK
 ----------------------------------------------------------------
 local function startHorizontalLock(targetRoot, duration)
-    if not targetRoot or not targetRoot.Parent or duration <= 0 then
-        return nil
-    end
+    if not targetRoot or not targetRoot.Parent or duration <= 0 then return nil end
 
-    local char, humanoid, hrp = getCharParts()
+    local _, humanoid, hrp = getCharParts()
     if not hrp or not humanoid then return nil end
 
     local startTime = tick()
     local conn
 
     conn = RunService.RenderStepped:Connect(function(dt)
-        if STATE.loopReworkBlocked or not STATE.loopRework then
+        if STATE.Blocked or not STATE.Enabled then
             if conn then conn:Disconnect() end
             return
         end
-        if not (targetRoot and targetRoot.Parent and hrp and hrp.Parent) then
+        if not (targetRoot.Parent and hrp.Parent) then
             if conn then conn:Disconnect() end
             return
         end
@@ -195,17 +190,16 @@ local function startHorizontalLock(targetRoot, duration)
         local hrpPos = hrp.Position
         local lookAt = Vector3.new(targetRoot.Position.X, hrpPos.Y, targetRoot.Position.Z)
 
-        if (lookAt - hrpPos).Magnitude >= 0.01 then
+        if (lookAt - hrpPos).Magnitude >= 0.015 then
             local desired = CFrame.new(hrpPos, lookAt)
-            local resp = math.clamp(STATE.loopReworkResponsiveness, 1, 10000)
+            local resp = math.clamp(STATE.Responsiveness, 1, 10000)
 
-            if resp >= 950 then
+            if resp >= 900 then
                 pcall(function() hrp.CFrame = desired end)
             else
-                local alpha = 1 - math.exp(-0.025 * resp * dt)
-                alpha = math.clamp(alpha, 0, 1)
+                local alpha = 1 - math.exp(-0.028 * resp * dt)
                 pcall(function()
-                    hrp.CFrame = hrp.CFrame:Lerp(desired, alpha)
+                    hrp.CFrame = hrp.CFrame:Lerp(desired, math.clamp(alpha, 0, 1))
                 end)
             end
         end
@@ -216,9 +210,7 @@ local function startHorizontalLock(targetRoot, duration)
     end)
 
     return function()
-        if conn then
-            pcall(function() conn:Disconnect() end)
-        end
+        if conn then pcall(function() conn:Disconnect() end) end
     end
 end
 
@@ -227,185 +219,81 @@ local function cancelActiveLock()
         pcall(activeLockCleanup)
         activeLockCleanup = nil
     end
-
     local char = player.Character
     if char then
-        local humanoid = char:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            pcall(function() humanoid.AutoRotate = true end)
-        end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then pcall(function() hum.AutoRotate = true end) end
     end
-end
-
-----------------------------------------------------------------
--- FORCE JUMP SYSTEM
-----------------------------------------------------------------
-local function forceJumpUpdateCharacter(char)
-    forceJumpChar = char
-    if char then
-        forceJumpHum = char:FindFirstChildOfClass("Humanoid")
-        forceJumpHRP = char:FindFirstChild("HumanoidRootPart") or char:FindFirstChild("Torso")
-    else
-        forceJumpHum = nil
-        forceJumpHRP = nil
-    end
-end
-
-local function forceJumpDoJump(humanoid, hrp)
-    if not STATE.ForceJumpEnabled then return false end
-    if not forceJumpCanUse then return true end
-
-    forceJumpCanUse = false
-
-    pcall(function()
-        if humanoid and humanoid.Parent then
-            humanoid.PlatformStand = false
-            humanoid.Jump = true
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end
-    end)
-
-    if hrp and hrp.Parent then
-        local upward = STATE.ForceJumpUpwardVelocity or 52
-        pcall(function()
-            local curr = hrp.AssemblyLinearVelocity
-            hrp.AssemblyLinearVelocity = Vector3.new(curr.X, upward, curr.Z)
-        end)
-        pcall(function()
-            local v = hrp.Velocity
-            hrp.Velocity = Vector3.new(v.X, upward, v.Z)
-        end)
-    end
-
-    task.delay(STATE.ForceJumpDebounceTime, function()
-        forceJumpCanUse = true
-    end)
-
-    return true
-end
-
-local function forceJumpSetup()
-    if connections.forceCharAdded then return end
-
-    connections.forceCharAdded = player.CharacterAdded:Connect(function(char)
-        task.wait(0.6)
-        forceJumpUpdateCharacter(char)
-    end)
-
-    if player.Character then
-        forceJumpUpdateCharacter(player.Character)
-    end
-end
-
-local function forceJumpUnload()
-    if connections.forceCharAdded then
-        pcall(function() connections.forceCharAdded:Disconnect() end)
-        connections.forceCharAdded = nil
-    end
-    forceJumpChar = nil
-    forceJumpHum  = nil
-    forceJumpHRP  = nil
-    forceJumpCanUse = true
 end
 
 ----------------------------------------------------------------
 -- MAIN SEQUENCE
 ----------------------------------------------------------------
 local function runSequence()
-    if STATE.loopReworkDebounce or not STATE.loopRework or STATE.loopReworkBlocked then
-        return
-    end
-    STATE.loopReworkDebounce = true
+    if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
+    STATE.Debounce = true
 
-    local waitDetect  = STATE.loopReworkWaitDetect
-    local waitJump    = STATE.loopReworkWaitJump
-    local waitRemote  = STATE.loopReworkWaitRemote
-    local lockDur     = STATE.loopReworkLockDuration
-    local cooldown    = STATE.loopReworkCooldown
+    local waitDetect = STATE.WaitDetect
+    local waitRemote = STATE.WaitRemote
+    local lockDur    = STATE.LockDuration
+    local cooldown   = STATE.Cooldown
 
     local t0 = tick()
     while tick() - t0 < waitDetect do
-        if not STATE.loopRework or STATE.loopReworkBlocked then
-            STATE.loopReworkDebounce = false
+        if not STATE.Enabled or STATE.Blocked then
+            STATE.Debounce = false
             return
         end
         RunService.Heartbeat:Wait()
     end
 
-    if not STATE.loopRework or STATE.loopReworkBlocked then
-        STATE.loopReworkDebounce = false
+    if not STATE.Enabled or STATE.Blocked then
+        STATE.Debounce = false
         return
     end
 
     local char, humanoid, hrp = getCharParts()
     if not humanoid or not hrp then
-        STATE.loopReworkDebounce = false
+        STATE.Debounce = false
         return
     end
 
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
 
-    if STATE.ForceJumpEnabled then
-        forceJumpSetup()
-        forceJumpUpdateCharacter(char)
-        local handled = forceJumpDoJump(humanoid, hrp)
-        if not handled then
-            pcall(function()
-                humanoid.Jump = true
-                humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-            end)
-        end
-    else
-        pcall(function()
-            humanoid.Jump = true
-            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-        end)
-    end
-
-    local t1 = tick()
-    while tick() - t1 < waitJump do
-        if not STATE.loopRework or STATE.loopReworkBlocked then
-            pcall(function() if humanoid.Parent then humanoid.AutoRotate = prevAuto end end)
-            STATE.loopReworkDebounce = false
-            return
-        end
-        RunService.Heartbeat:Wait()
-    end
-
-    if not STATE.loopRework or STATE.loopReworkBlocked then
-        pcall(function() if humanoid.Parent then humanoid.AutoRotate = prevAuto end end)
-        STATE.loopReworkDebounce = false
-        return
-    end
+    -- Jump
+    pcall(function()
+        humanoid.Jump = true
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+    end)
 
     fireDashQW()
 
     local t2 = tick()
     while tick() - t2 < waitRemote do
-        if not STATE.loopRework or STATE.loopReworkBlocked then
+        if not STATE.Enabled or STATE.Blocked then
             pcall(function() if humanoid.Parent then humanoid.AutoRotate = prevAuto end end)
-            STATE.loopReworkDebounce = false
+            STATE.Debounce = false
             return
         end
         RunService.Heartbeat:Wait()
     end
 
-    if not STATE.loopRework or STATE.loopReworkBlocked then
+    if not STATE.Enabled or STATE.Blocked then
         pcall(function() if humanoid.Parent then humanoid.AutoRotate = prevAuto end end)
-        STATE.loopReworkDebounce = false
+        STATE.Debounce = false
         return
     end
 
     local target = findBestTarget()
-    if target and not STATE.loopReworkBlocked then
+    if target and not STATE.Blocked then
         activeLockCleanup = startHorizontalLock(target, lockDur)
     end
 
     task.spawn(function()
         local keepUntil = tick() + math.max(lockDur, 1.0)
         while tick() < keepUntil do
-            if not STATE.loopRework or STATE.loopReworkBlocked then break end
+            if not STATE.Enabled or STATE.Blocked then break end
             pcall(function()
                 if humanoid and humanoid.Parent then
                     humanoid.AutoRotate = false
@@ -428,21 +316,19 @@ local function runSequence()
     end)
 
     task.delay(cooldown, function()
-        STATE.loopReworkDebounce = false
+        STATE.Debounce = false
     end)
 end
 
 ----------------------------------------------------------------
--- ANIMATION HOOK
+-- ANIMATION + BLOCK
 ----------------------------------------------------------------
 local function onAnimationPlayed(track)
-    if not STATE.loopRework or STATE.loopReworkDebounce or STATE.loopReworkBlocked then
-        return
-    end
+    if not STATE.Enabled or STATE.Debounce or STATE.Blocked then return end
     if not track or not track.Animation then return end
 
     local id = tostring(track.Animation.AnimationId or "")
-    if id == CONFIG.loopReworkAnimDetectId or id:find(CONFIG.loopReworkAnimDetectId, 1, true) then
+    if id == CONFIG.AnimDetectId or id:find(CONFIG.AnimDetectId, 1, true) then
         task.spawn(runSequence)
     end
 end
@@ -455,51 +341,169 @@ local function hookCharacter()
 
     local char = player.Character
     if not char then return end
-
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     if humanoid then
         connections.anim = humanoid.AnimationPlayed:Connect(onAnimationPlayed)
     end
 end
 
-----------------------------------------------------------------
--- BLOCK CHECKER
-----------------------------------------------------------------
 local function startBlockChecker()
     if connections.blockChecker then
         pcall(function() connections.blockChecker:Disconnect() end)
         connections.blockChecker = nil
     end
 
-    local lastCheck = 0
+    local last = 0
     connections.blockChecker = RunService.Heartbeat:Connect(function(dt)
-        if not STATE.loopRework then return end
-
-        lastCheck += dt
-        if lastCheck < 0.12 then return end
-        lastCheck = 0
+        if not STATE.Enabled then return end
+        last += dt
+        if last < 0.12 then return end
+        last = 0
 
         local found = scanForBlockingAnim()
-        if found and not STATE.loopReworkBlocked then
-            STATE.loopReworkBlocked = true
+        if found and not STATE.Blocked then
+            STATE.Blocked = true
             cancelActiveLock()
             if connections.anim then
                 pcall(function() connections.anim:Disconnect() end)
                 connections.anim = nil
             end
-        elseif not found and STATE.loopReworkBlocked then
-            STATE.loopReworkBlocked = false
-            if STATE.loopRework then
-                hookCharacter()
-            end
+        elseif not found and STATE.Blocked then
+            STATE.Blocked = false
+            if STATE.Enabled then hookCharacter() end
         end
     end)
 end
 
 ----------------------------------------------------------------
+-- BODY ESP (Premium White)
+----------------------------------------------------------------
+local function clearESP()
+    for model, list in pairs(espHighlights) do
+        for _, h in ipairs(list) do
+            pcall(function() h:Destroy() end)
+        end
+    end
+    table.clear(espHighlights)
+end
+
+local function applyESPToModel(model)
+    if not model or not model:IsA("Model") or model == player.Character then return end
+    if espHighlights[model] then return end -- already has
+
+    local list = {}
+    for _, partName in ipairs(CONFIG.BodyParts) do
+        local part = model:FindFirstChild(partName)
+        if part and part:IsA("BasePart") then
+            local highlight = Instance.new("Highlight")
+            highlight.Name = "JalineBodyESP"
+            highlight.Adornee = part
+            highlight.FillColor = CONFIG.ESPColor
+            highlight.OutlineColor = CONFIG.ESPColor
+            highlight.FillTransparency = 0.55
+            highlight.OutlineTransparency = 0
+            highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+            highlight.Parent = part
+            table.insert(list, highlight)
+        end
+    end
+
+    if #list > 0 then
+        espHighlights[model] = list
+    end
+end
+
+local function removeESPFromModel(model)
+    local list = espHighlights[model]
+    if list then
+        for _, h in ipairs(list) do
+            pcall(function() h:Destroy() end)
+        end
+        espHighlights[model] = nil
+    end
+end
+
+local function updateBodyESP()
+    if not STATE.BodyESP then
+        clearESP()
+        return
+    end
+
+    local live = Workspace:FindFirstChild("Live")
+    local targets = {}
+
+    if live then
+        for _, model in ipairs(live:GetChildren()) do
+            if model:IsA("Model") and model ~= player.Character then
+                local hum = model:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    targets[model] = true
+                    applyESPToModel(model)
+                end
+            end
+        end
+    end
+
+    -- also players (in case Live is empty)
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character then
+            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 0 then
+                targets[plr.Character] = true
+                applyESPToModel(plr.Character)
+            end
+        end
+    end
+
+    -- cleanup dead / left
+    for model in pairs(espHighlights) do
+        if not targets[model] or not model.Parent then
+            removeESPFromModel(model)
+        end
+    end
+end
+
+local function startBodyESP()
+    if connections.espLoop then return end
+
+    connections.espLoop = RunService.Heartbeat:Connect(function()
+        if STATE.BodyESP then
+            updateBodyESP()
+        end
+    end)
+
+    -- also react to new characters
+    local function onCharAdded(char)
+        task.wait(0.4)
+        if STATE.BodyESP then
+            applyESPToModel(char)
+        end
+    end
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            plr.CharacterAdded:Connect(onCharAdded)
+            if plr.Character then onCharAdded(plr.Character) end
+        end
+    end
+
+    Players.PlayerAdded:Connect(function(plr)
+        plr.CharacterAdded:Connect(onCharAdded)
+    end)
+end
+
+local function stopBodyESP()
+    if connections.espLoop then
+        pcall(function() connections.espLoop:Disconnect() end)
+        connections.espLoop = nil
+    end
+    clearESP()
+end
+
+----------------------------------------------------------------
 -- SETUP / UNLOAD
 ----------------------------------------------------------------
-local function loopReworkSetup()
+local function dashSetup()
     hookCharacter()
     startBlockChecker()
 
@@ -508,30 +512,22 @@ local function loopReworkSetup()
     end
 
     connections.charAdded = player.CharacterAdded:Connect(function()
-        task.wait(0.8)
-        if STATE.loopRework then
-            hookCharacter()
-        end
+        task.wait(0.7)
+        if STATE.Enabled then hookCharacter() end
     end)
-
-    forceJumpSetup()
 end
 
-local function loopReworkUnload()
+local function dashUnload()
     for _, conn in pairs(connections) do
-        if conn then
-            pcall(function() conn:Disconnect() end)
-        end
+        if conn then pcall(function() conn:Disconnect() end) end
     end
     connections.anim         = nil
     connections.blockChecker = nil
     connections.charAdded    = nil
 
     cancelActiveLock()
-    forceJumpUnload()
-
-    STATE.loopReworkDebounce = false
-    STATE.loopReworkBlocked  = false
+    STATE.Debounce = false
+    STATE.Blocked  = false
 end
 
 player.CharacterRemoving:Connect(function()
@@ -542,38 +538,67 @@ end)
 -- UI (Rayfield Gen2)
 ----------------------------------------------------------------
 local Window = Rayfield:CreateWindow({
-    name = "Jaline Hub",
-    subtitle = "Loop Dash v2",
-    theme = "cobalt",
+    name = "Jaline Dash",
+    subtitle = "Premium Edition",
+    theme = "frost",
     configuration = {
         autoSave = true,
         autoLoad = true,
-        fileName = "JalineHub",
+        fileName = "JalineDash",
     },
 })
 
 local Tab = Window:CreateTab({
-    name = "Loop Dash v2",
+    name = "Jaline Dash",
     icon = 93364949241311,
 })
 
+-- Main Toggle
 Tab:CreateToggle({
-    name = "LoopDash v2 Enabled",
-    flag = "LoopDashEnabled",
-    value = STATE.loopRework,
+    name = "Jaline Dash",
+    description = "Advanced loop dash system",
+    flag = "JalineDashEnabled",
+    value = false,
     callback = function(value)
-        STATE.loopRework = value
+        STATE.Enabled = value
         if value then
-            loopReworkSetup()
+            dashSetup()
             Window:Notify({
-                title = "LoopDash v2",
+                title = "Jaline Dash",
                 content = "ENABLED",
+                duration = 2.5,
+            })
+        else
+            dashUnload()
+            Window:Notify({
+                title = "Jaline Dash",
+                content = "DISABLED",
+                duration = 2.5,
+            })
+        end
+    end,
+})
+
+-- Body ESP Button (Toggle style for proper on/off)
+Tab:CreateToggle({
+    name = "Body ESP",
+    description = "White highlight on Head, Torso, Arms & Legs",
+    flag = "BodyESP",
+    value = false,
+    callback = function(value)
+        STATE.BodyESP = value
+        if value then
+            startBodyESP()
+            updateBodyESP()
+            Window:Notify({
+                title = "Body ESP",
+                content = "ENABLED • White",
                 duration = 2,
             })
         else
-            loopReworkUnload()
+            stopBodyESP()
             Window:Notify({
-                title = "LoopDash v2",
+                title = "Body ESP",
                 content = "DISABLED",
                 duration = 2,
             })
@@ -581,80 +606,45 @@ Tab:CreateToggle({
     end,
 })
 
-Tab:CreateToggle({
-    name = "Jump Assist (Oreo)",
-    description = "Forces strong upward velocity for oreo tech",
-    flag = "ForceJumpEnabled",
-    value = STATE.ForceJumpEnabled,
-    callback = function(value)
-        STATE.ForceJumpEnabled = value
-        if value then
-            forceJumpSetup()
-        else
-            forceJumpUnload()
-        end
-    end,
-})
-
-Tab:CreateSlider({
-    name = "Jump Height",
-    flag = "JumpHeight",
-    range = {10, 100},
-    increment = 1,
-    value = STATE.ForceJumpUpwardVelocity,
-    callback = function(value)
-        STATE.ForceJumpUpwardVelocity = value
-    end,
-})
-
+-- Settings
 Tab:CreateSlider({
     name = "Detect Delay",
-    description = "Seconds before sequence starts",
     flag = "DetectDelay",
-    range = {0, 2},
+    range = {0, 1.5},
     increment = 0.05,
-    value = STATE.loopReworkWaitDetect,
+    value = STATE.WaitDetect,
     suffix = "s",
-    callback = function(value)
-        STATE.loopReworkWaitDetect = value
-    end,
+    callback = function(v) STATE.WaitDetect = v end,
 })
 
 Tab:CreateSlider({
-    name = "First Flick Delay",
-    description = "Delay after jump before firing remote",
+    name = "Flick Delay",
     flag = "FlickDelay",
-    range = {0, 1},
+    range = {0, 0.8},
     increment = 0.05,
-    value = STATE.loopReworkWaitRemote,
+    value = STATE.WaitRemote,
     suffix = "s",
-    callback = function(value)
-        STATE.loopReworkWaitRemote = value
-    end,
+    callback = function(v) STATE.WaitRemote = v end,
 })
 
 Tab:CreateSlider({
     name = "Lock Duration",
     flag = "LockDuration",
-    range = {0.2, 3},
+    range = {0.3, 3},
     increment = 0.1,
-    value = STATE.loopReworkLockDuration,
+    value = STATE.LockDuration,
     suffix = "s",
-    callback = function(value)
-        STATE.loopReworkLockDuration = value
-    end,
+    callback = function(v) STATE.LockDuration = v end,
 })
 
 Tab:CreateSlider({
-    name = "Smoothness / Responsiveness",
+    name = "Smoothness",
     description = "Higher = snappier lock",
-    flag = "Responsiveness",
-    range = {1, 1000},
-    increment = 1,
-    value = STATE.loopReworkResponsiveness,
-    callback = function(value)
-        STATE.loopReworkResponsiveness = value
-    end,
+    flag = "Smoothness",
+    range = {50, 1000},
+    increment = 10,
+    value = STATE.Responsiveness,
+    callback = function(v) STATE.Responsiveness = v end,
 })
 
-print("[Jaline Hub] Loaded with Rayfield Gen2")
+print("[Jaline Dash] Loaded • Premium Edition")
