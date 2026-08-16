@@ -2,14 +2,15 @@
 
 **Premium Edition**
 
-Black UI • Light Purple Glow • Centered Star Crosshair • Falling Stars
+Black UI • Light Purple Glow • Falling Stars Background • Decorative GIF Asset
 
 ## Features
 
 - **Jaline Dash** — Advanced loop dash
 - **Body ESP** — White body part highlights
-- **Star Crosshair** — Clean light purple star fixed in the center of the screen
-- **Falling Stars** — Soft refined background animation
+- Pure black theme with light purple gradient & glow
+- Falling star background animation
+- Decorative pulsing GIF-style star asset
 - Full config saving
 
 ## Loadstring
