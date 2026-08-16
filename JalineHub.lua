@@ -2,6 +2,7 @@
     Jaline Dash
     Premium Edition
     + Activate Auto Block
+    + Activate Inf Dash
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -14,6 +15,11 @@ local CoreGui            = game:GetService("CoreGui")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
+
+-- Inf Dash initialization
+if Workspace:GetAttribute("NoDashCooldown") == nil then
+    Workspace:SetAttribute("NoDashCooldown", false)
+end
 
 ----------------------------------------------------------------
 -- CONFIG
@@ -49,6 +55,9 @@ local STATE = {
 
     -- Body ESP
     BodyESP        = false,
+
+    -- Inf Dash
+    InfDash        = false,
 
     -- Auto Block
     AutoBlock      = false,
@@ -173,7 +182,7 @@ local function FireRemote(goal, mobile)
 end
 
 ----------------------------------------------------------------
--- TARGET FINDING (Jaline Dash)
+-- TARGET FINDING
 ----------------------------------------------------------------
 local function FindBestTarget()
     local live = Workspace:FindFirstChild("Live")
@@ -204,7 +213,7 @@ local function FindBestTarget()
 end
 
 ----------------------------------------------------------------
--- BLOCK DETECTION (Jaline Dash internal)
+-- BLOCK DETECTION
 ----------------------------------------------------------------
 local function HasBlockingAnim(model)
     local hum = model and model:FindFirstChildOfClass("Humanoid")
@@ -306,7 +315,7 @@ local function CancelActiveLock()
 end
 
 ----------------------------------------------------------------
--- MAIN SEQUENCE (Jaline Dash)
+-- MAIN SEQUENCE
 ----------------------------------------------------------------
 local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
@@ -399,7 +408,7 @@ local function RunSequence()
 end
 
 ----------------------------------------------------------------
--- ANIMATION + BLOCK (Jaline Dash)
+-- ANIMATION + BLOCK
 ----------------------------------------------------------------
 local function OnAnimationPlayed(track)
     if not STATE.Enabled or STATE.Debounce or STATE.Blocked then return end
@@ -613,7 +622,7 @@ local function StopAutoBlock()
 end
 
 ----------------------------------------------------------------
--- BODY ESP (OPTIMIZED)
+-- BODY ESP
 ----------------------------------------------------------------
 local function ClearAllESP()
     for model, highlight in pairs(ESPObjects) do
@@ -958,6 +967,22 @@ Tab:CreateToggle({
 })
 
 Tab:CreateToggle({
+    name = "Activate Inf Dash",
+    description = "Removes dash cooldown (NoDashCooldown)",
+    flag = "InfDash",
+    value = false,
+    callback = function(value)
+        STATE.InfDash = value
+        Workspace:SetAttribute("NoDashCooldown", value)
+        Window:Notify({
+            title = "Inf Dash",
+            content = value and "ACTIVATED" or "DEACTIVATED",
+            duration = 2
+        })
+    end,
+})
+
+Tab:CreateToggle({
     name = "Body ESP",
     description = "Optimized white body highlight",
     flag = "BodyESP",
@@ -1088,4 +1113,4 @@ AutoBlockTab:CreateSlider({
     callback = function(v) STATE.SkillDelay = v end,
 })
 
-print("[Jaline Dash] Loaded • Auto Block Integrated")
+print("[Jaline Dash] Loaded • Inf Dash + Auto Block")
