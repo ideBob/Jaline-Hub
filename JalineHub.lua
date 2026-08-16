@@ -1,15 +1,16 @@
 --[[
     Jaline Dash
-    Premium Loop Dash + White Body ESP
-    Fully advanced & polished
+    Premium Edition
+    Black UI + Light Purple Glow + Falling Stars
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
-local Players          = game:GetService("Players")
-local RunService       = game:GetService("RunService")
-local Workspace        = game:GetService("Workspace")
-local CollectionService = game:GetService("CollectionService")
+local Players           = game:GetService("Players")
+local RunService        = game:GetService("RunService")
+local TweenService      = game:GetService("TweenService")
+local Workspace         = game:GetService("Workspace")
+local CoreGui           = game:GetService("CoreGui")
 
 local player = Players.LocalPlayer
 
@@ -20,36 +21,39 @@ local CONFIG = {
     AnimDetectId = "10503381238",
     BlockAnimId  = "10471478869",
 
-    -- Body parts we highlight
     BodyParts = {
         "Head",
-        "Torso", "UpperTorso", "LowerTorso", -- R6 + R15
+        "Torso", "UpperTorso", "LowerTorso",
         "Left Arm", "LeftUpperArm", "LeftLowerArm", "LeftHand",
         "Right Arm", "RightUpperArm", "RightLowerArm", "RightHand",
         "Left Leg", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
         "Right Leg", "RightUpperLeg", "RightLowerLeg", "RightFoot",
     },
 
-    ESPColor = Color3.fromRGB(255, 255, 255), -- Pure white
+    ESPColor = Color3.fromRGB(255, 255, 255),
+
+    -- Visuals
+    StarAssetId = "rbxassetid://241594819",          -- classic star particle
+    GifAssetId  = "rbxassetid://5860841663",         -- bright star / sparkle (used as decorative gif-like)
+    LightPurple = Color3.fromRGB(190, 145, 255),
+    LightPurple2 = Color3.fromRGB(160, 110, 255),
 }
 
 ----------------------------------------------------------------
 -- STATE
 ----------------------------------------------------------------
 local STATE = {
-    -- Jaline Dash
-    Enabled          = false,
-    Debounce         = false,
-    Blocked          = false,
-    WaitDetect       = 0.30,
-    WaitRemote       = 0.10,
-    LockDuration     = 1.50,
-    Cooldown         = 1.00,
-    TargetRadius     = 50,
-    Responsiveness   = 650,
+    Enabled        = false,
+    Debounce       = false,
+    Blocked        = false,
+    WaitDetect     = 0.30,
+    WaitRemote     = 0.10,
+    LockDuration   = 1.50,
+    Cooldown       = 1.00,
+    TargetRadius   = 50,
+    Responsiveness = 650,
 
-    -- Body ESP
-    BodyESP          = false,
+    BodyESP        = false,
 }
 
 ----------------------------------------------------------------
@@ -60,10 +64,12 @@ local connections = {
     blockChecker = nil,
     charAdded    = nil,
     espLoop      = nil,
+    starLoop     = nil,
 }
 
 local activeLockCleanup = nil
-local espHighlights     = {} -- [Model] = {Highlight instances}
+local espHighlights     = {}
+local starContainer     = nil
 
 ----------------------------------------------------------------
 -- UTILS
@@ -261,7 +267,6 @@ local function runSequence()
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
 
-    -- Jump
     pcall(function()
         humanoid.Jump = true
         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -376,7 +381,7 @@ local function startBlockChecker()
 end
 
 ----------------------------------------------------------------
--- BODY ESP (Premium White)
+-- BODY ESP
 ----------------------------------------------------------------
 local function clearESP()
     for model, list in pairs(espHighlights) do
@@ -389,7 +394,7 @@ end
 
 local function applyESPToModel(model)
     if not model or not model:IsA("Model") or model == player.Character then return end
-    if espHighlights[model] then return end -- already has
+    if espHighlights[model] then return end
 
     local list = {}
     for _, partName in ipairs(CONFIG.BodyParts) do
@@ -444,7 +449,6 @@ local function updateBodyESP()
         end
     end
 
-    -- also players (in case Live is empty)
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character then
             local hum = plr.Character:FindFirstChildOfClass("Humanoid")
@@ -455,7 +459,6 @@ local function updateBodyESP()
         end
     end
 
-    -- cleanup dead / left
     for model in pairs(espHighlights) do
         if not targets[model] or not model.Parent then
             removeESPFromModel(model)
@@ -472,12 +475,9 @@ local function startBodyESP()
         end
     end)
 
-    -- also react to new characters
     local function onCharAdded(char)
         task.wait(0.4)
-        if STATE.BodyESP then
-            applyESPToModel(char)
-        end
+        if STATE.BodyESP then applyESPToModel(char) end
     end
 
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -501,6 +501,106 @@ local function stopBodyESP()
 end
 
 ----------------------------------------------------------------
+-- FALLING STARS BACKGROUND + DECORATIVE GIF
+----------------------------------------------------------------
+local function createStarBackground()
+    -- Create a dedicated ScreenGui so it always works
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "JalineDashStars"
+    gui.ResetOnSpawn = false
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.IgnoreGuiInset = true
+    gui.DisplayOrder = 999
+
+    pcall(function()
+        gui.Parent = CoreGui
+    end)
+    if not gui.Parent then
+        gui.Parent = player:WaitForChild("PlayerGui")
+    end
+
+    -- Main black-ish container (semi transparent so it sits behind / blends)
+    local container = Instance.new("Frame")
+    container.Name = "StarContainer"
+    container.Size = UDim2.fromScale(1, 1)
+    container.BackgroundTransparency = 1
+    container.BorderSizePixel = 0
+    container.ClipsDescendants = true
+    container.Parent = gui
+
+    starContainer = container
+
+    -- Decorative large "gif-like" star (subtle pulse)
+    local decor = Instance.new("ImageLabel")
+    decor.Name = "DecorStar"
+    decor.Size = UDim2.fromOffset(120, 120)
+    decor.Position = UDim2.new(0.85, 0, 0.12, 0)
+    decor.BackgroundTransparency = 1
+    decor.Image = CONFIG.GifAssetId
+    decor.ImageColor3 = CONFIG.LightPurple
+    decor.ImageTransparency = 0.35
+    decor.ScaleType = Enum.ScaleType.Fit
+    decor.ZIndex = 2
+    decor.Parent = container
+
+    -- Soft pulse animation for the decorative star
+    task.spawn(function()
+        while decor and decor.Parent do
+            local t1 = TweenService:Create(decor, TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                ImageTransparency = 0.15,
+                Size = UDim2.fromOffset(135, 135)
+            })
+            t1:Play()
+            t1.Completed:Wait()
+            local t2 = TweenService:Create(decor, TweenInfo.new(1.8, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                ImageTransparency = 0.45,
+                Size = UDim2.fromOffset(115, 115)
+            })
+            t2:Play()
+            t2.Completed:Wait()
+        end
+    end)
+
+    -- Falling stars loop
+    connections.starLoop = RunService.Heartbeat:Connect(function()
+        if not container or not container.Parent then return end
+
+        -- Spawn chance
+        if math.random() > 0.04 then return end
+
+        local star = Instance.new("ImageLabel")
+        star.Name = "FallingStar"
+        star.BackgroundTransparency = 1
+        star.Image = CONFIG.StarAssetId
+        star.ImageColor3 = CONFIG.LightPurple
+        star.ImageTransparency = math.random(20, 55) / 100
+        star.ScaleType = Enum.ScaleType.Fit
+        star.ZIndex = 1
+
+        local size = math.random(10, 22)
+        star.Size = UDim2.fromOffset(size, size)
+
+        local startX = math.random()
+        star.Position = UDim2.new(startX, 0, -0.05, 0)
+        star.Parent = container
+
+        local duration = math.random(35, 70) / 10
+        local endX = startX + (math.random(-15, 15) / 100)
+
+        local tween = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
+            Position = UDim2.new(endX, 0, 1.1, 0),
+            ImageTransparency = 1,
+            Rotation = math.random(-40, 40)
+        })
+        tween:Play()
+
+        tween.Completed:Connect(function()
+            star:Destroy()
+        end)
+    end)
+end
+
+----------------------------------------------------------------
 -- SETUP / UNLOAD
 ----------------------------------------------------------------
 local function dashSetup()
@@ -518,12 +618,12 @@ local function dashSetup()
 end
 
 local function dashUnload()
-    for _, conn in pairs(connections) do
-        if conn then pcall(function() conn:Disconnect() end) end
+    for name, conn in pairs(connections) do
+        if name ~= "starLoop" and conn then
+            pcall(function() conn:Disconnect() end)
+            connections[name] = nil
+        end
     end
-    connections.anim         = nil
-    connections.blockChecker = nil
-    connections.charAdded    = nil
 
     cancelActiveLock()
     STATE.Debounce = false
@@ -535,12 +635,53 @@ player.CharacterRemoving:Connect(function()
 end)
 
 ----------------------------------------------------------------
--- UI (Rayfield Gen2)
+-- CUSTOM THEME (Black + Light Purple)
+----------------------------------------------------------------
+local CustomTheme = {
+    WindowColor = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(8, 8, 12)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(14, 10, 22)),
+    }),
+    ShadowColor = Color3.fromRGB(0, 0, 0),
+    LiveAnimation = true,
+
+    ContentColor = Color3.fromRGB(230, 225, 255),
+    TitlingColor = Color3.fromRGB(210, 185, 255),
+    ActionColor  = CONFIG.LightPurple,
+
+    TabColor = Color3.fromRGB(220, 200, 255),
+    TabBackground = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(18, 14, 28)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 18, 42)),
+    }),
+    TabStroke = ColorSequence.new(CONFIG.LightPurple, CONFIG.LightPurple2),
+
+    ElementGradient = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(16, 14, 24)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 16, 34)),
+    }),
+    ElementStroke = Color3.fromRGB(70, 50, 110),
+    ElementStrokeHover = CONFIG.LightPurple,
+
+    AccentColor = CONFIG.LightPurple,
+    AccentStroke = CONFIG.LightPurple2,
+    AccentGlow = 0.35,
+
+    SliderBackground = Color3.fromRGB(25, 20, 40),
+    SliderProgress = ColorSequence.new(CONFIG.LightPurple, CONFIG.LightPurple2),
+    SliderHandle = Color3.fromRGB(235, 220, 255),
+
+    ToggleTrack = Color3.fromRGB(30, 25, 45),
+    ToggleKnobOff = Color3.fromRGB(90, 80, 120),
+}
+
+----------------------------------------------------------------
+-- UI
 ----------------------------------------------------------------
 local Window = Rayfield:CreateWindow({
     name = "Jaline Dash",
     subtitle = "Premium Edition",
-    theme = "frost",
+    theme = CustomTheme,
     configuration = {
         autoSave = true,
         autoLoad = true,
@@ -548,12 +689,14 @@ local Window = Rayfield:CreateWindow({
     },
 })
 
+-- Start the star background right after window creation
+task.defer(createStarBackground)
+
 local Tab = Window:CreateTab({
     name = "Jaline Dash",
     icon = 93364949241311,
 })
 
--- Main Toggle
 Tab:CreateToggle({
     name = "Jaline Dash",
     description = "Advanced loop dash system",
@@ -579,7 +722,6 @@ Tab:CreateToggle({
     end,
 })
 
--- Body ESP Button (Toggle style for proper on/off)
 Tab:CreateToggle({
     name = "Body ESP",
     description = "White highlight on Head, Torso, Arms & Legs",
@@ -606,7 +748,6 @@ Tab:CreateToggle({
     end,
 })
 
--- Settings
 Tab:CreateSlider({
     name = "Detect Delay",
     flag = "DetectDelay",
@@ -647,4 +788,4 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
-print("[Jaline Dash] Loaded • Premium Edition")
+print("[Jaline Dash] Loaded • Black + Light Purple + Falling Stars")

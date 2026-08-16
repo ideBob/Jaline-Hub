@@ -1,21 +1,17 @@
 # Jaline Dash
 
-**Premium Loop Dash + White Body ESP**
+**Premium Edition**
 
-Clean, advanced, and polished.
+Black UI • Light Purple Glow • Falling Stars
 
 ## Features
 
-- **Jaline Dash** — High quality loop dash system
-- **Body ESP** — Pure white highlights on:
-  - Head
-  - Torso (R6 + R15)
-  - Left / Right Arms
-  - Left / Right Legs
-- Auto block detection
-- Smooth horizontal lock
-- Full cleanup & config saving
-- Rayfield Gen2 UI
+- **Jaline Dash** — Advanced loop dash
+- **Body ESP** — Pure white body part highlights
+- Custom black theme with light purple accents & glow
+- Falling star background animation
+- Decorative pulsing star asset
+- Full config saving
 
 ## Loadstring
 
@@ -23,4 +19,4 @@ Clean, advanced, and polished.
 loadstring(game:HttpGet("https://raw.githubusercontent.com/ideBob/Jaline-Hub/main/JalineHub.lua"))()
 ```
 
-Enjoy.
+Enjoy the vibe.
