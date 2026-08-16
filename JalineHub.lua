@@ -2,16 +2,16 @@
     Jaline Dash
     Premium Edition
     Black + Light Purple • Falling Stars • Decorative Pulsing Star
-    Fixed: One Highlight per character • Clean structure
+    Optimized Highlight Performance
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
 
-local Players     = game:GetService("Players")
-local RunService  = game:GetService("RunService")
+local Players      = game:GetService("Players")
+local RunService   = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local Workspace   = game:GetService("Workspace")
-local CoreGui     = game:GetService("CoreGui")
+local Workspace    = game:GetService("Workspace")
+local CoreGui      = game:GetService("CoreGui")
 
 local LocalPlayer = Players.LocalPlayer
 
@@ -22,13 +22,14 @@ local CONFIG = {
     AnimDetectId = "10503381238",
     BlockAnimId  = "10471478869",
 
-    -- Exact assets you requested
-    StarAssetId  = "rbxassetid://241594819",   -- Falling stars
-    GifAssetId   = "rbxassetid://5860841663",  -- Decorative pulsing star
+    StarAssetId  = "rbxassetid://241594819",
+    GifAssetId   = "rbxassetid://5860841663",
 
     LightPurple  = Color3.fromRGB(190, 145, 255),
     LightPurple2 = Color3.fromRGB(160, 110, 255),
     ESPColor     = Color3.fromRGB(255, 255, 255),
+
+    ESPUpdateRate = 0.20, -- seconds between full ESP scans
 }
 
 ----------------------------------------------------------------
@@ -52,7 +53,7 @@ local STATE = {
 ----------------------------------------------------------------
 local Connections = {}
 local ActiveLockCleanup = nil
-local ESPObjects = {}          -- [Model] = Highlight
+local ESPObjects = {} -- [Model] = Highlight
 local VisualGui = nil
 
 ----------------------------------------------------------------
@@ -366,7 +367,7 @@ local function StartBlockChecker()
 end
 
 ----------------------------------------------------------------
--- BODY ESP  (FIXED: ONE Highlight per character)
+-- BODY ESP (OPTIMIZED)
 ----------------------------------------------------------------
 local function ClearAllESP()
     for model, highlight in pairs(ESPObjects) do
@@ -376,12 +377,17 @@ local function ClearAllESP()
 end
 
 local function ApplyESP(model)
-    if not model or not model:IsA("Model") or model == LocalPlayer.Character then return end
-    if ESPObjects[model] then return end
+    if not model or model == LocalPlayer.Character then return end
+    if ESPObjects[model] and ESPObjects[model].Parent then return end
+
+    if ESPObjects[model] then
+        pcall(function() ESPObjects[model]:Destroy() end)
+        ESPObjects[model] = nil
+    end
 
     local highlight = Instance.new("Highlight")
     highlight.Name = "JalineESP"
-    highlight.Adornee = model                 -- whole character, one instance
+    highlight.Adornee = model
     highlight.FillColor = CONFIG.ESPColor
     highlight.OutlineColor = CONFIG.ESPColor
     highlight.FillTransparency = 0.55
@@ -390,6 +396,18 @@ local function ApplyESP(model)
     highlight.Parent = model
 
     ESPObjects[model] = highlight
+
+    -- Auto-clean when model leaves the game
+    local conn
+    conn = model.AncestryChanged:Connect(function(_, parent)
+        if not parent then
+            if ESPObjects[model] then
+                pcall(function() ESPObjects[model]:Destroy() end)
+                ESPObjects[model] = nil
+            end
+            if conn then conn:Disconnect() end
+        end
+    end)
 end
 
 local function RemoveESP(model)
@@ -419,14 +437,14 @@ local function UpdateBodyESP()
                 end
             end
         end
-    end
-
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LocalPlayer and plr.Character then
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 0 then
-                active[plr.Character] = true
-                ApplyESP(plr.Character)
+    else
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+                if hum and hum.Health > 0 then
+                    active[plr.Character] = true
+                    ApplyESP(plr.Character)
+                end
             end
         end
     end
@@ -441,15 +459,23 @@ end
 local function StartBodyESP()
     if Connections.ESP then return end
 
-    Connections.ESP = RunService.Heartbeat:Connect(function()
-        if STATE.BodyESP then
-            UpdateBodyESP()
-        end
+    local timer = 0
+    Connections.ESP = RunService.Heartbeat:Connect(function(dt)
+        if not STATE.BodyESP then return end
+
+        timer += dt
+        if timer < CONFIG.ESPUpdateRate then return end
+        timer = 0
+
+        UpdateBodyESP()
     end)
 
     local function onChar(char)
-        task.wait(0.35)
-        if STATE.BodyESP then ApplyESP(char) end
+        task.delay(0.4, function()
+            if STATE.BodyESP and char and char.Parent then
+                ApplyESP(char)
+            end
+        end)
     end
 
     for _, plr in ipairs(Players:GetPlayers()) do
@@ -462,6 +488,8 @@ local function StartBodyESP()
     Players.PlayerAdded:Connect(function(plr)
         plr.CharacterAdded:Connect(onChar)
     end)
+
+    UpdateBodyESP()
 end
 
 local function StopBodyESP()
@@ -502,14 +530,13 @@ local function CreateVisuals()
 
     VisualGui = gui
 
-    -- Decorative pulsing star (exact asset you requested)
     local decor = Instance.new("ImageLabel")
     decor.Name = "DecorStar"
     decor.AnchorPoint = Vector2.new(0.5, 0.5)
     decor.Position = UDim2.new(0.92, 0, 0.09, 0)
     decor.Size = UDim2.fromOffset(88, 88)
     decor.BackgroundTransparency = 1
-    decor.Image = CONFIG.GifAssetId          -- rbxassetid://5860841663
+    decor.Image = CONFIG.GifAssetId
     decor.ImageColor3 = CONFIG.LightPurple
     decor.ImageTransparency = 0.22
     decor.ScaleType = Enum.ScaleType.Fit
@@ -534,7 +561,6 @@ local function CreateVisuals()
         end
     end)
 
-    -- Falling stars (exact asset you requested)
     if Connections.StarLoop then
         pcall(function() Connections.StarLoop:Disconnect() end)
     end
@@ -546,7 +572,7 @@ local function CreateVisuals()
         local star = Instance.new("ImageLabel")
         star.Name = "FallingStar"
         star.BackgroundTransparency = 1
-        star.Image = CONFIG.StarAssetId       -- rbxassetid://241594819
+        star.Image = CONFIG.StarAssetId
         star.ImageColor3 = CONFIG.LightPurple
         star.ImageTransparency = math.random(18, 52) / 100
         star.ScaleType = Enum.ScaleType.Fit
@@ -604,7 +630,7 @@ end
 LocalPlayer.CharacterRemoving:Connect(CancelActiveLock)
 
 ----------------------------------------------------------------
--- THEME (Black + Light Purple)
+-- THEME
 ----------------------------------------------------------------
 local CustomTheme = {
     WindowColor = ColorSequence.new({
@@ -684,14 +710,13 @@ Tab:CreateToggle({
 
 Tab:CreateToggle({
     name = "Body ESP",
-    description = "White highlight on entire body (one Highlight per character)",
+    description = "Optimized white body highlight (one Highlight per character)",
     flag = "BodyESP",
     value = false,
     callback = function(value)
         STATE.BodyESP = value
         if value then
             StartBodyESP()
-            UpdateBodyESP()
             Window:Notify({ title = "Body ESP", content = "ENABLED • White", duration = 2 })
         else
             StopBodyESP()
@@ -740,4 +765,4 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
-print("[Jaline Dash] Loaded • Fixed Highlight + Exact Star Assets")
+print("[Jaline Dash] Loaded • Optimized Highlight Performance")
