@@ -1,8 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    + Activate Auto Block
-    + Activate Inf Dash
+    Camera-driven lock (uses CurrentCamera CFrame)
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -15,6 +14,7 @@ local CoreGui            = game:GetService("CoreGui")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
 
 -- Inf Dash initialization
 if Workspace:GetAttribute("NoDashCooldown") == nil then
@@ -42,7 +42,6 @@ local CONFIG = {
 -- STATE
 ----------------------------------------------------------------
 local STATE = {
-    -- Jaline Dash
     Enabled        = false,
     Debounce       = false,
     Blocked        = false,
@@ -53,13 +52,9 @@ local STATE = {
     TargetRadius   = 50,
     Responsiveness = 650,
 
-    -- Body ESP
     BodyESP        = false,
-
-    -- Inf Dash
     InfDash        = false,
 
-    -- Auto Block
     AutoBlock      = false,
     M1AfterBlock   = false,
     M1Catch        = false,
@@ -84,42 +79,15 @@ local LastCatch = 0
 local ComboIDs = {10480793962, 10480796021}
 
 local AllIDs = {
-    Saitama = {
-        10469493270, 10469630950, 10469639222, 10469643643,
-        special = 10479335397
-    },
-    Garou = {
-        13532562418, 13532600125, 13532604085, 13294471966,
-        special = 10479335397
-    },
-    Cyborg = {
-        13491635433, 13296577783, 13295919399, 13295936866,
-        special = 10479335397
-    },
-    Sonic = {
-        13370310513, 13390230973, 13378751717, 13378708199,
-        special = 13380255751
-    },
-    Metal = {
-        14004222985, 13997092940, 14001963401, 14136436157,
-        special = 13380255751
-    },
-    Blade = {
-        15259161390, 15240216931, 15240176873, 15162694192,
-        special = 13380255751
-    },
-    Tatsumaki = {
-        16515503507, 16515520431, 16515448089, 16552234590,
-        special = 10479335397
-    },
-    Dragon = {
-        17889458563, 17889461810, 17889471098, 17889290569,
-        special = 10479335397
-    },
-    Tech = {
-        123005629431309, 100059874351664, 104895379416342, 134775406437626,
-        special = 10479335397
-    }
+    Saitama = {10469493270, 10469630950, 10469639222, 10469643643, special = 10479335397},
+    Garou = {13532562418, 13532600125, 13532604085, 13294471966, special = 10479335397},
+    Cyborg = {13491635433, 13296577783, 13295919399, 13295936866, special = 10479335397},
+    Sonic = {13370310513, 13390230973, 13378751717, 13378708199, special = 13380255751},
+    Metal = {14004222985, 13997092940, 14001963401, 14136436157, special = 13380255751},
+    Blade = {15259161390, 15240216931, 15240176873, 15162694192, special = 13380255751},
+    Tatsumaki = {16515503507, 16515520431, 16515448089, 16552234590, special = 10479335397},
+    Dragon = {17889458563, 17889461810, 17889471098, 17889290569, special = 10479335397},
+    Tech = {123005629431309, 100059874351664, 104895379416342, 134775406437626, special = 10479335397},
 }
 
 local SkillIDs = {
@@ -179,6 +147,19 @@ local function FireRemote(goal, mobile)
     pcall(function()
         comm:FireServer(unpack(args))
     end)
+end
+
+-- Flat camera look direction (XZ only)
+local function GetCameraFlatLook()
+    local cam = Workspace.CurrentCamera
+    if not cam then return Vector3.new(0, 0, -1) end
+
+    local look = cam.CFrame.LookVector
+    local flat = Vector3.new(look.X, 0, look.Z)
+    if flat.Magnitude < 0.001 then
+        return Vector3.new(0, 0, -1)
+    end
+    return flat.Unit
 end
 
 ----------------------------------------------------------------
@@ -252,10 +233,10 @@ local function IsAnyoneBlocking()
 end
 
 ----------------------------------------------------------------
--- HORIZONTAL LOCK
+-- CAMERA-DRIVEN HORIZONTAL LOCK
 ----------------------------------------------------------------
 local function StartHorizontalLock(targetRoot, duration)
-    if not targetRoot or not targetRoot.Parent or duration <= 0 then return nil end
+    if duration <= 0 then return nil end
 
     local _, humanoid, hrp = GetCharParts()
     if not hrp or not humanoid then return nil end
@@ -268,26 +249,45 @@ local function StartHorizontalLock(targetRoot, duration)
             if conn then conn:Disconnect() end
             return
         end
-        if not (targetRoot.Parent and hrp.Parent) then
+        if not hrp.Parent then
             if conn then conn:Disconnect() end
             return
         end
 
         local hrpPos = hrp.Position
-        local lookAt = Vector3.new(targetRoot.Position.X, hrpPos.Y, targetRoot.Position.Z)
+        local desiredLook
 
-        if (lookAt - hrpPos).Magnitude >= 0.015 then
-            local desired = CFrame.new(hrpPos, lookAt)
-            local resp = math.clamp(STATE.Responsiveness, 1, 10000)
-
-            if resp >= 900 then
-                pcall(function() hrp.CFrame = desired end)
+        -- Prefer target when valid, otherwise pure camera facing
+        if targetRoot and targetRoot.Parent then
+            local toTarget = Vector3.new(targetRoot.Position.X - hrpPos.X, 0, targetRoot.Position.Z - hrpPos.Z)
+            if toTarget.Magnitude > 0.05 then
+                desiredLook = toTarget.Unit
             else
-                local alpha = 1 - math.exp(-0.028 * resp * dt)
-                pcall(function()
-                    hrp.CFrame = hrp.CFrame:Lerp(desired, math.clamp(alpha, 0, 1))
-                end)
+                desiredLook = GetCameraFlatLook()
             end
+        else
+            desiredLook = GetCameraFlatLook()
+        end
+
+        -- Soft blend with camera so it always feels camera-aware
+        local camLook = GetCameraFlatLook()
+        local blended = (desiredLook * 0.65 + camLook * 0.35)
+        if blended.Magnitude < 0.001 then
+            blended = camLook
+        else
+            blended = blended.Unit
+        end
+
+        local desired = CFrame.new(hrpPos, hrpPos + blended)
+        local resp = math.clamp(STATE.Responsiveness, 1, 10000)
+
+        if resp >= 900 then
+            pcall(function() hrp.CFrame = desired end)
+        else
+            local alpha = 1 - math.exp(-0.028 * resp * dt)
+            pcall(function()
+                hrp.CFrame = hrp.CFrame:Lerp(desired, math.clamp(alpha, 0, 1))
+            end)
         end
 
         if tick() - startTime >= duration then
@@ -349,6 +349,14 @@ local function RunSequence()
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
 
+    -- Align to camera immediately before jump/dash
+    do
+        local camLook = GetCameraFlatLook()
+        pcall(function()
+            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + camLook)
+        end)
+    end
+
     pcall(function()
         humanoid.Jump = true
         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
@@ -373,7 +381,7 @@ local function RunSequence()
     end
 
     local target = FindBestTarget()
-    if target and not STATE.Blocked then
+    if not STATE.Blocked then
         ActiveLockCleanup = StartHorizontalLock(target, lockDur)
     end
 
@@ -948,10 +956,9 @@ local AutoBlockTab = Window:CreateTab({
     icon = 93364949241311,
 })
 
--- Jaline Dash Tab
 Tab:CreateToggle({
     name = "Jaline Dash",
-    description = "Advanced loop dash system",
+    description = "Camera-driven loop dash",
     flag = "JalineDashEnabled",
     value = false,
     callback = function(value)
@@ -1038,7 +1045,6 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
--- Auto Block Tab
 AutoBlockTab:CreateToggle({
     name = "Activate Auto Block",
     description = "Detects enemy attacks and auto blocks",
@@ -1113,4 +1119,4 @@ AutoBlockTab:CreateSlider({
     callback = function(v) STATE.SkillDelay = v end,
 })
 
-print("[Jaline Dash] Loaded • Inf Dash + Auto Block")
+print("[Jaline Dash] Loaded • Camera-driven lock")
