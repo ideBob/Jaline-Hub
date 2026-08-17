@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    Mobile-draggable ESP Preview + Jump/Accuracy/Range/Cancel
+    ESP Preview: front idle + thumb rotate
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -38,12 +38,7 @@ local STATE = {
     BodyESP = false, InfDash = false,
     AutoBlock = false, M1AfterBlock = false, M1Catch = false,
     NormalRange = 30, SpecialRange = 50, SkillRange = 50, SkillDelay = 1.2,
-
-    -- From image settings
-    Jump = 55,
-    Accuracy = 15,
-    AimRange = 8,
-    Cancel = 0.4,
+    Jump = 55, Accuracy = 15, AimRange = 8, Cancel = 0.4,
 }
 
 local Connections = {}
@@ -131,7 +126,6 @@ local function FindBestTarget()
     if not live then return nil end
     local _, _, hrp = GetCharParts()
     if not hrp then return nil end
-    -- Prefer AimRange when set, else TargetRadius
     local maxDist = math.max(STATE.AimRange, STATE.TargetRadius)
     local bestRoot, bestDist = nil, maxDist
     for _, model in ipairs(live:GetChildren()) do
@@ -195,7 +189,6 @@ local function StartHorizontalLock(targetRoot, duration)
         else
             desiredLook = GetCameraFlatLook()
         end
-        -- Accuracy softens blend (higher accuracy = more target lock)
         local acc = math.clamp(STATE.Accuracy / 100, 0.05, 1)
         local camLook = GetCameraFlatLook()
         local blended = (desiredLook * acc + camLook * (1 - acc))
@@ -230,8 +223,7 @@ local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
     STATE.Debounce = true
     local waitDetect, waitRemote, lockDur = STATE.WaitDetect, STATE.WaitRemote, STATE.LockDuration
-    local cooldown = math.max(STATE.Cooldown, STATE.Cancel) -- Cancel acts as min cooldown buffer
-
+    local cooldown = math.max(STATE.Cooldown, STATE.Cancel)
     local t0 = tick()
     while tick() - t0 < waitDetect do
         if not STATE.Enabled or STATE.Blocked then STATE.Debounce = false return end
@@ -506,68 +498,10 @@ local function StopBodyESP()
 end
 
 ----------------------------------------------------------------
--- ESP PREVIEW — mobile thumb drag
+-- ESP PREVIEW
+-- Idle front-facing character
+-- Thumb swipe left/right = rotate character (not move panel)
 ----------------------------------------------------------------
-local function MakeDraggable(frame)
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
-
-    local function begin(input)
-        dragging = true
-        dragStart = input.Position
-        startPos = frame.Position
-    end
-
-    local function update(input)
-        if not dragging then return end
-        local delta = input.Position - dragStart
-        frame.Position = UDim2.new(
-            startPos.X.Scale,
-            startPos.X.Offset + delta.X,
-            startPos.Y.Scale,
-            startPos.Y.Offset + delta.Y
-        )
-    end
-
-    local function finish()
-        dragging = false
-    end
-
-    frame.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            begin(input)
-            input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    finish()
-                end
-            end)
-        end
-    end)
-
-    frame.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch then
-            update(input)
-        end
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
-            or input.UserInputType == Enum.UserInputType.Touch) then
-            update(input)
-        end
-    end)
-
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1
-            or input.UserInputType == Enum.UserInputType.Touch then
-            finish()
-        end
-    end)
-end
-
 local function MakePart(name, size, cf, parent)
     local p = Instance.new("Part")
     p.Name = name
@@ -606,28 +540,34 @@ local function TryCloneCharacter()
     if not char then return nil end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
+
     local wasArchivable = char.Archivable
     char.Archivable = true
     local ok, clone = pcall(function() return char:Clone() end)
     char.Archivable = wasArchivable
     if not ok or not clone then return nil end
+
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("LocalScript") or d:IsA("Script") or d:IsA("Tool") or d:IsA("Sound") then
             pcall(function() d:Destroy() end)
         end
     end
+
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("BasePart") then
             d.Anchored = true
             d.CanCollide = false
         end
     end
+
     local hl = Instance.new("Highlight")
     hl.FillColor = CONFIG.LightPurple
     hl.OutlineColor = CONFIG.LightPurple
     hl.FillTransparency = 0.9
     hl.OutlineTransparency = 0.15
     hl.Parent = clone
+
+    -- Move to origin and force upright front-facing pose
     local cloneHRP = clone:FindFirstChild("HumanoidRootPart")
     if cloneHRP then
         local offset = cloneHRP.Position
@@ -636,7 +576,17 @@ local function TryCloneCharacter()
                 d.CFrame = d.CFrame - offset + Vector3.new(0, 3, 0)
             end
         end
+        -- Straight, looking +Z (front toward camera when cam is at +Z)
+        local pivot = cloneHRP.Position
+        local upright = CFrame.new(pivot) * CFrame.Angles(0, 0, 0)
+        local delta = upright * cloneHRP.CFrame:Inverse()
+        for _, d in ipairs(clone:GetDescendants()) do
+            if d:IsA("BasePart") then
+                d.CFrame = delta * d.CFrame
+            end
+        end
     end
+
     return clone
 end
 
@@ -663,9 +613,6 @@ local function CreateESPPreview()
     panel.Active = true
     panel.Parent = gui
     Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
-
-    -- Touch-friendly drag (thumb)
-    MakeDraggable(panel)
 
     local stroke = Instance.new("UIStroke")
     stroke.Color = CONFIG.LightPurple
@@ -696,7 +643,7 @@ local function CreateESPPreview()
     sub.Size = UDim2.new(1, -16, 0, 16)
     sub.Position = UDim2.fromOffset(10, 30)
     sub.BackgroundTransparency = 1
-    sub.Text = "Drag with thumb"
+    sub.Text = "Swipe left / right to rotate"
     sub.Font = Enum.Font.Gotham
     sub.TextSize = 11
     sub.TextColor3 = Color3.fromRGB(170, 160, 200)
@@ -712,6 +659,7 @@ local function CreateESPPreview()
     viewport.Ambient = Color3.fromRGB(140, 140, 160)
     viewport.LightColor = Color3.fromRGB(220, 220, 230)
     viewport.LightDirection = Vector3.new(0, -1, -1)
+    viewport.Active = true -- needed for input
     viewport.Parent = panel
     Instance.new("UICorner", viewport).CornerRadius = UDim.new(0, 8)
 
@@ -730,12 +678,18 @@ local function CreateESPPreview()
     viewport.CurrentCamera = cam
 
     local cloneRef = nil
+    local yaw = 0 -- rotation around Y (radians)
+    local centerPos = Vector3.new(0, 3, 0)
+    local camDist = 14
+    local camHeight = 2.2
 
-    local function setCameraIdle(model)
-        local pp = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart") or model:FindFirstChildWhichIsA("BasePart")
-        if not pp then return end
-        local center = pp.Position
-        cam.CFrame = CFrame.new(center + Vector3.new(0, 2.2, 14), center + Vector3.new(0, 1.0, 0))
+    local function updateCamera()
+        if not cloneRef then return end
+        local pp = cloneRef.PrimaryPart or cloneRef:FindFirstChild("HumanoidRootPart") or cloneRef:FindFirstChildWhichIsA("BasePart")
+        if pp then centerPos = pp.Position end
+        -- Camera orbits around character; character stays upright facing its own forward
+        local offset = Vector3.new(math.sin(yaw) * camDist, camHeight, math.cos(yaw) * camDist)
+        cam.CFrame = CFrame.new(centerPos + offset, centerPos + Vector3.new(0, 1, 0))
     end
 
     local function rebuild()
@@ -744,7 +698,8 @@ local function CreateESPPreview()
         if not clone then clone = BuildFallbackMannequin() end
         clone.Parent = world
         cloneRef = clone
-        setCameraIdle(clone)
+        yaw = 0 -- reset to front
+        updateCamera()
     end
 
     task.spawn(function()
@@ -755,10 +710,47 @@ local function CreateESPPreview()
         end
     end)
 
-    if Connections.PreviewRot then
-        pcall(function() Connections.PreviewRot:Disconnect() end)
-        Connections.PreviewRot = nil
+    -- Thumb / mouse horizontal drag → rotate yaw (character appears to turn)
+    local dragging = false
+    local lastX = 0
+
+    local function onBegin(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            lastX = input.Position.X
+        end
     end
+
+    local function onMove(input)
+        if not dragging then return end
+        if input.UserInputType ~= Enum.UserInputType.MouseMovement
+            and input.UserInputType ~= Enum.UserInputType.Touch then
+            return
+        end
+        local dx = input.Position.X - lastX
+        lastX = input.Position.X
+        -- Swipe right → rotate one way, left the other
+        yaw = yaw - dx * 0.012
+        updateCamera()
+    end
+
+    local function onEnd(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end
+
+    viewport.InputBegan:Connect(onBegin)
+    viewport.InputChanged:Connect(onMove)
+    panel.InputBegan:Connect(onBegin)
+    panel.InputChanged:Connect(onMove)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging then onMove(input) end
+    end)
+    UserInputService.InputEnded:Connect(onEnd)
 
     LocalPlayer.CharacterAdded:Connect(function()
         task.wait(1.2)
@@ -948,63 +940,35 @@ Tab:CreateSlider({ Name = "Flick Delay", flag = "FlickDelay", range = {0, 0.8}, 
 Tab:CreateSlider({ Name = "Lock Duration", flag = "LockDuration", range = {0.3, 3}, increment = 0.1, value = STATE.LockDuration, suffix = "s", callback = function(v) STATE.LockDuration = v end })
 Tab:CreateSlider({ Name = "Smoothness", flag = "Smoothness", range = {50, 1000}, increment = 10, value = STATE.Responsiveness, callback = function(v) STATE.Responsiveness = v end })
 
--- Settings from image
 SettingsTab:CreateSlider({
-    Name = "Jump",
-    description = "Character JumpPower",
-    flag = "JumpPower",
-    range = {0, 120},
-    increment = 1,
-    value = STATE.Jump,
-    callback = function(v)
-        STATE.Jump = v
-        ApplyJumpPower()
-    end,
+    Name = "Jump", description = "Character JumpPower", flag = "JumpPower",
+    range = {0, 120}, increment = 1, value = STATE.Jump,
+    callback = function(v) STATE.Jump = v ApplyJumpPower() end,
 })
-
 SettingsTab:CreateSlider({
-    Name = "Accuracy",
-    description = "Lock aim strength (higher = tighter)",
-    flag = "Accuracy",
-    range = {1, 100},
-    increment = 1,
-    value = STATE.Accuracy,
+    Name = "Accuracy", description = "Lock aim strength (higher = tighter)", flag = "Accuracy",
+    range = {1, 100}, increment = 1, value = STATE.Accuracy,
     callback = function(v) STATE.Accuracy = v end,
 })
-
 SettingsTab:CreateSlider({
-    Name = "Range",
-    description = "Target search range",
-    flag = "AimRange",
-    range = {1, 50},
-    increment = 1,
-    value = STATE.AimRange,
+    Name = "Range", description = "Target search range", flag = "AimRange",
+    range = {1, 50}, increment = 1, value = STATE.AimRange,
     callback = function(v) STATE.AimRange = v end,
 })
-
 SettingsTab:CreateSlider({
-    Name = "Cancel",
-    description = "Min cooldown after sequence",
-    flag = "Cancel",
-    range = {0, 2},
-    increment = 0.05,
-    value = STATE.Cancel,
-    suffix = "s",
+    Name = "Cancel", description = "Min cooldown after sequence", flag = "Cancel",
+    range = {0, 2}, increment = 0.05, value = STATE.Cancel, suffix = "s",
     callback = function(v) STATE.Cancel = v end,
 })
 
 AutoBlockTab:CreateToggle({
-    Name = "Activate Auto Block",
-    description = "Detects enemy attacks and auto blocks",
-    flag = "AutoBlock",
-    value = false,
+    Name = "Activate Auto Block", description = "Detects enemy attacks and auto blocks", flag = "AutoBlock", value = false,
     callback = function(value)
         STATE.AutoBlock = value
         if value then StartAutoBlock() Window:Notify({ title = "Auto Block", content = "ACTIVATED", duration = 2.5 })
         else StopAutoBlock() Window:Notify({ title = "Auto Block", content = "DEACTIVATED", duration = 2.5 }) end
     end,
 })
-
 AutoBlockTab:CreateToggle({ Name = "M1 After Block", flag = "M1AfterBlock", value = false, callback = function(v) STATE.M1AfterBlock = v end })
 AutoBlockTab:CreateToggle({ Name = "M1 Catch", flag = "M1Catch", value = false, callback = function(v) STATE.M1Catch = v end })
 AutoBlockTab:CreateSlider({ Name = "Normal Range", flag = "NormalRange", range = {10, 80}, increment = 1, value = STATE.NormalRange, callback = function(v) STATE.NormalRange = v end })
@@ -1012,4 +976,4 @@ AutoBlockTab:CreateSlider({ Name = "Special Range", flag = "SpecialRange", range
 AutoBlockTab:CreateSlider({ Name = "Skill Range", flag = "SkillRange", range = {10, 100}, increment = 1, value = STATE.SkillRange, callback = function(v) STATE.SkillRange = v end })
 AutoBlockTab:CreateSlider({ Name = "Skill Hold Delay", flag = "SkillDelay", range = {0.3, 3}, increment = 0.1, value = STATE.SkillDelay, suffix = "s", callback = function(v) STATE.SkillDelay = v end })
 
-print("[Jaline Dash] Loaded • Thumb-draggable ESP Preview + Settings")
+print("[Jaline Dash] Loaded • Front idle ESP Preview + thumb rotate")
