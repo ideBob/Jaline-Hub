@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    Camera CFrame lock + Zcoolio Tech
+    ESP Preview hologram + no Zcoolio
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -25,14 +25,6 @@ end
 local CONFIG = {
     AnimDetectId = "10503381238",
     BlockAnimId  = "10471478869",
-
-    -- Uppercut detection (Zcoolio). Add more IDs if needed.
-    UppercutAnimIds = {
-        "10503381238",
-        "10469493270",
-        "10469630950",
-        "14900168720",
-    },
 
     StarAssetId  = "rbxassetid://241594819",
     GifAssetId   = "rbxassetid://5860841663",
@@ -68,10 +60,6 @@ local STATE = {
     SpecialRange   = 50,
     SkillRange     = 50,
     SkillDelay     = 1.2,
-
-    -- Zcoolio
-    Zcoolio        = false,
-    ZcoolioDebounce = false,
 }
 
 ----------------------------------------------------------------
@@ -81,6 +69,7 @@ local Connections = {}
 local ActiveLockCleanup = nil
 local ESPObjects = {}
 local VisualGui = nil
+local PreviewGui = nil
 local LastCatch = 0
 
 ----------------------------------------------------------------
@@ -170,15 +159,6 @@ local function GetCameraFlatLook()
     return flat.Unit
 end
 
-local function IsUppercutId(idStr)
-    for _, uid in ipairs(CONFIG.UppercutAnimIds) do
-        if idStr == uid or idStr:find(uid, 1, true) then
-            return true
-        end
-    end
-    return false
-end
-
 ----------------------------------------------------------------
 -- TARGET FINDING
 ----------------------------------------------------------------
@@ -208,11 +188,6 @@ local function FindBestTarget()
         end
     end
     return bestRoot
-end
-
-local function FindBestTargetModel()
-    local root = FindBestTarget()
-    return root and root.Parent or nil
 end
 
 ----------------------------------------------------------------
@@ -255,7 +230,7 @@ local function IsAnyoneBlocking()
 end
 
 ----------------------------------------------------------------
--- CAMERA + CHARACTER LOCK (CFrame)
+-- CAMERA + CHARACTER LOCK
 ----------------------------------------------------------------
 local function StartHorizontalLock(targetRoot, duration)
     if duration <= 0 then return nil end
@@ -311,17 +286,14 @@ local function StartHorizontalLock(targetRoot, duration)
             end)
         end
 
-        -- Move / aim the actual camera CFrame toward the same direction
         if cam then
             local camPos = cam.CFrame.Position
             local lookTarget
-
             if targetRoot and targetRoot.Parent then
                 lookTarget = targetRoot.Position + Vector3.new(0, 1.5, 0)
             else
                 lookTarget = camPos + blended * 20
             end
-
             local desiredCam = CFrame.new(camPos, lookTarget)
             local camAlpha = math.clamp(1 - math.exp(-12 * dt), 0, 1)
             pcall(function()
@@ -354,7 +326,7 @@ local function CancelActiveLock()
 end
 
 ----------------------------------------------------------------
--- MAIN SEQUENCE (Jaline Dash)
+-- MAIN SEQUENCE
 ----------------------------------------------------------------
 local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
@@ -388,7 +360,6 @@ local function RunSequence()
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
 
-    -- Snap character + camera to camera look before dash
     do
         local camLook = GetCameraFlatLook()
         pcall(function()
@@ -462,112 +433,15 @@ local function RunSequence()
 end
 
 ----------------------------------------------------------------
--- ZCOOLIO TECH
--- Detect uppercut -> CFrame to target toes -> look up
-----------------------------------------------------------------
-local function RunZcoolio()
-    if STATE.ZcoolioDebounce or not STATE.Zcoolio then return end
-    STATE.ZcoolioDebounce = true
-
-    local char, humanoid, hrp = GetCharParts()
-    if not char or not humanoid or not hrp then
-        STATE.ZcoolioDebounce = false
-        return
-    end
-
-    local targetModel = FindBestTargetModel()
-    if not targetModel then
-        STATE.ZcoolioDebounce = false
-        return
-    end
-
-    local targetRoot = targetModel:FindFirstChild("HumanoidRootPart")
-    if not targetRoot then
-        STATE.ZcoolioDebounce = false
-        return
-    end
-
-    -- Find toes / feet position
-    local toesPos
-    local leftFoot = targetModel:FindFirstChild("LeftFoot") or targetModel:FindFirstChild("Left Leg")
-    local rightFoot = targetModel:FindFirstChild("RightFoot") or targetModel:FindFirstChild("Right Leg")
-
-    if leftFoot and rightFoot then
-        toesPos = (leftFoot.Position + rightFoot.Position) / 2
-    elseif leftFoot then
-        toesPos = leftFoot.Position
-    elseif rightFoot then
-        toesPos = rightFoot.Position
-    else
-        -- Fallback: slightly below HRP
-        toesPos = targetRoot.Position - Vector3.new(0, 2.5, 0)
-    end
-
-    local prevAuto = humanoid.AutoRotate
-    pcall(function() humanoid.AutoRotate = false end)
-
-    -- 1) Tap character down to target toes (slightly in front)
-    local offset = (hrp.Position - targetRoot.Position)
-    offset = Vector3.new(offset.X, 0, offset.Z)
-    if offset.Magnitude < 0.1 then
-        offset = GetCameraFlatLook() * -1
-    else
-        offset = offset.Unit
-    end
-
-    local standPos = toesPos + offset * 1.1 + Vector3.new(0, 2.2, 0)
-
-    pcall(function()
-        hrp.CFrame = CFrame.new(standPos, standPos + Vector3.new(0, 5, 0)) -- temporary face up
-    end)
-
-    -- 2) Make character look up (toward target head / upward)
-    local head = targetModel:FindFirstChild("Head")
-    local lookAt = head and head.Position or (targetRoot.Position + Vector3.new(0, 3, 0))
-
-    task.wait(0.03)
-
-    pcall(function()
-        hrp.CFrame = CFrame.new(hrp.Position, lookAt)
-    end)
-
-    -- Also pitch camera upward
-    local cam = Workspace.CurrentCamera
-    if cam then
-        local camPos = cam.CFrame.Position
-        pcall(function()
-            cam.CFrame = CFrame.new(camPos, lookAt)
-        end)
-    end
-
-    task.delay(0.35, function()
-        pcall(function()
-            if humanoid and humanoid.Parent then
-                humanoid.AutoRotate = prevAuto
-            end
-        end)
-        STATE.ZcoolioDebounce = false
-    end)
-end
-
-----------------------------------------------------------------
 -- ANIMATION HOOKS
 ----------------------------------------------------------------
 local function OnAnimationPlayed(track)
     if not track or not track.Animation then return end
     local id = tostring(track.Animation.AnimationId or "")
 
-    -- Jaline Dash detect
     if STATE.Enabled and not STATE.Debounce and not STATE.Blocked then
         if id == CONFIG.AnimDetectId or id:find(CONFIG.AnimDetectId, 1, true) then
             task.spawn(RunSequence)
-        end
-    end
-
-    -- Zcoolio uppercut detect
-    if STATE.Zcoolio and not STATE.ZcoolioDebounce then
-        if IsUppercutId(id) then
-            task.spawn(RunZcoolio)
         end
     end
 end
@@ -609,26 +483,23 @@ local function StartBlockChecker()
             end
         elseif not found and STATE.Blocked then
             STATE.Blocked = false
-            if STATE.Enabled or STATE.Zcoolio then HookCharacter() end
+            if STATE.Enabled then HookCharacter() end
         end
     end)
 end
 
 ----------------------------------------------------------------
--- AUTO BLOCK LOGIC
+-- AUTO BLOCK
 ----------------------------------------------------------------
 local function DoAfterBlock(hrp)
     if not STATE.M1AfterBlock or not hrp or not LocalPlayer.Character then return end
-
     local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
-
     local dist = (hrp.Position - root.Position).Magnitude
     if dist <= 10 then
         FireRemote("LeftClick", true)
         task.delay(0.3, function()
-            local newDist = (hrp.Position - root.Position).Magnitude
-            if newDist <= 10 then
+            if (hrp.Position - root.Position).Magnitude <= 10 then
                 FireRemote("LeftClickRelease", true)
             end
         end)
@@ -638,7 +509,6 @@ end
 local function CheckAnims()
     local live = Workspace:FindFirstChild("Live")
     if not live then return end
-
     local myChar = LocalPlayer.Character
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
     if not myHRP then return end
@@ -648,55 +518,38 @@ local function CheckAnims()
             local char = player.Character
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildWhichIsA("Humanoid")
-
             if hrp and hum then
                 local dist = (hrp.Position - myHRP.Position).Magnitude
                 local animator = hum:FindFirstChildOfClass("Animator")
-
                 if animator then
                     local anims = {}
                     for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
                         local id = tonumber(tostring(track.Animation.AnimationId):match("%d+"))
                         if id then anims[id] = true end
                     end
-
                     local comboCount = 0
                     for _, id in ipairs(ComboIDs) do
                         if anims[id] then comboCount += 1 end
                     end
-
                     for _, group in pairs(AllIDs) do
                         local normalHits, special = 0, anims[group.special]
                         for i = 1, 4 do
                             if anims[group[i]] then normalHits += 1 end
                         end
-
                         if comboCount == 2 and normalHits >= 2 and dist <= STATE.SpecialRange then
-                            FireRemote("KeyPress")
-                            task.wait(0.7)
-                            FireRemote("KeyRelease")
-                            break
+                            FireRemote("KeyPress") task.wait(0.7) FireRemote("KeyRelease") break
                         elseif normalHits > 0 and dist <= STATE.NormalRange then
-                            FireRemote("KeyPress")
-                            task.wait(0.15)
-                            FireRemote("KeyRelease")
-                            DoAfterBlock(hrp)
-                            break
+                            FireRemote("KeyPress") task.wait(0.15) FireRemote("KeyRelease") DoAfterBlock(hrp) break
                         elseif special and dist <= STATE.SpecialRange and not STATE.M1Catch then
                             FireRemote("KeyPress")
-                            task.delay(1, function()
-                                FireRemote("KeyRelease")
-                            end)
+                            task.delay(1, function() FireRemote("KeyRelease") end)
                             break
                         end
                     end
-
                     for animId in pairs(anims) do
                         if SkillIDs[animId] and dist <= STATE.SkillRange then
                             FireRemote("KeyPress")
-                            task.delay(STATE.SkillDelay, function()
-                                FireRemote("KeyRelease")
-                            end)
+                            task.delay(STATE.SkillDelay, function() FireRemote("KeyRelease") end)
                             break
                         end
                     end
@@ -708,10 +561,8 @@ end
 
 local function CheckM1Catch()
     if not STATE.M1Catch then return end
-
     local live = Workspace:FindFirstChild("Live")
     if not live then return end
-
     local myChar = LocalPlayer.Character
     local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
     if not myHRP then return end
@@ -721,7 +572,6 @@ local function CheckM1Catch()
             local char = player.Character
             local hrp = char:FindFirstChild("HumanoidRootPart")
             local hum = char:FindFirstChildWhichIsA("Humanoid")
-
             if hrp and hum then
                 local dist1 = (hrp.Position - myHRP.Position).Magnitude
                 if dist1 <= 30 then
@@ -735,9 +585,7 @@ local function CheckM1Catch()
                                     if dist2 < dist1 - 0.5 and tick() - LastCatch >= 5 then
                                         LastCatch = tick()
                                         FireRemote("LeftClick", true)
-                                        task.delay(0.2, function()
-                                            FireRemote("LeftClickRelease", true)
-                                        end)
+                                        task.delay(0.2, function() FireRemote("LeftClickRelease", true) end)
                                         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.D, false, game)
                                         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Q, false, game)
                                         task.delay(1, function()
@@ -758,7 +606,6 @@ end
 
 local function StartAutoBlock()
     if Connections.AutoBlock then return end
-
     Connections.AutoBlock = RunService.Heartbeat:Connect(function()
         if not STATE.AutoBlock then return end
         pcall(CheckAnims)
@@ -786,7 +633,6 @@ end
 local function ApplyESP(model)
     if not model or model == LocalPlayer.Character then return end
     if ESPObjects[model] and ESPObjects[model].Parent then return end
-
     if ESPObjects[model] then
         pcall(function() ESPObjects[model]:Destroy() end)
         ESPObjects[model] = nil
@@ -801,7 +647,6 @@ local function ApplyESP(model)
     highlight.OutlineTransparency = 0
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = model
-
     ESPObjects[model] = highlight
 
     local conn
@@ -825,13 +670,8 @@ local function RemoveESP(model)
 end
 
 local function UpdateBodyESP()
-    if not STATE.BodyESP then
-        ClearAllESP()
-        return
-    end
-
+    if not STATE.BodyESP then ClearAllESP() return end
     local active = {}
-
     local live = Workspace:FindFirstChild("Live")
     if live then
         for _, model in ipairs(live:GetChildren()) do
@@ -854,17 +694,13 @@ local function UpdateBodyESP()
             end
         end
     end
-
     for model in pairs(ESPObjects) do
-        if not active[model] or not model.Parent then
-            RemoveESP(model)
-        end
+        if not active[model] or not model.Parent then RemoveESP(model) end
     end
 end
 
 local function StartBodyESP()
     if Connections.ESP then return end
-
     local timer = 0
     Connections.ESP = RunService.Heartbeat:Connect(function(dt)
         if not STATE.BodyESP then return end
@@ -873,26 +709,18 @@ local function StartBodyESP()
         timer = 0
         UpdateBodyESP()
     end)
-
     local function onChar(char)
         task.delay(0.4, function()
-            if STATE.BodyESP and char and char.Parent then
-                ApplyESP(char)
-            end
+            if STATE.BodyESP and char and char.Parent then ApplyESP(char) end
         end)
     end
-
     for _, plr in ipairs(Players:GetPlayers()) do
         if plr ~= LocalPlayer then
             plr.CharacterAdded:Connect(onChar)
             if plr.Character then onChar(plr.Character) end
         end
     end
-
-    Players.PlayerAdded:Connect(function(plr)
-        plr.CharacterAdded:Connect(onChar)
-    end)
-
+    Players.PlayerAdded:Connect(function(plr) plr.CharacterAdded:Connect(onChar) end)
     UpdateBodyESP()
 end
 
@@ -905,7 +733,206 @@ local function StopBodyESP()
 end
 
 ----------------------------------------------------------------
--- VISUALS
+-- ESP PREVIEW (Rayfield-styled panel + hologram)
+----------------------------------------------------------------
+local function CreateESPPreview()
+    if PreviewGui then
+        pcall(function() PreviewGui:Destroy() end)
+        PreviewGui = nil
+    end
+
+    local gui = Instance.new("ScreenGui")
+    gui.Name = "JalineESPPreview"
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    gui.DisplayOrder = 20
+
+    pcall(function() gui.Parent = CoreGui end)
+    if not gui.Parent then
+        gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+    end
+    PreviewGui = gui
+
+    -- Main panel (matches black + light purple Rayfield look)
+    local panel = Instance.new("Frame")
+    panel.Name = "PreviewPanel"
+    panel.Size = UDim2.fromOffset(200, 280)
+    panel.Position = UDim2.new(0, 24, 0.5, -140)
+    panel.BackgroundColor3 = Color3.fromRGB(10, 10, 14)
+    panel.BorderSizePixel = 0
+    panel.Active = true
+    panel.Draggable = true
+    panel.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = panel
+
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = CONFIG.LightPurple
+    stroke.Thickness = 1.4
+    stroke.Transparency = 0.35
+    stroke.Parent = panel
+
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(12, 10, 18)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(18, 12, 28)),
+    })
+    grad.Rotation = 90
+    grad.Parent = panel
+
+    -- Title bar
+    local title = Instance.new("TextLabel")
+    title.Name = "Title"
+    title.Size = UDim2.new(1, -16, 0, 28)
+    title.Position = UDim2.fromOffset(8, 6)
+    title.BackgroundTransparency = 1
+    title.Text = "ESP Preview"
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 14
+    title.TextColor3 = CONFIG.LightPurple
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = panel
+
+    local subtitle = Instance.new("TextLabel")
+    subtitle.Size = UDim2.new(1, -16, 0, 16)
+    subtitle.Position = UDim2.fromOffset(8, 28)
+    subtitle.BackgroundTransparency = 1
+    subtitle.Text = "Your hologram"
+    subtitle.Font = Enum.Font.Gotham
+    subtitle.TextSize = 11
+    subtitle.TextColor3 = Color3.fromRGB(180, 170, 210)
+    subtitle.TextXAlignment = Enum.TextXAlignment.Left
+    subtitle.Parent = panel
+
+    -- Viewport frame for hologram
+    local viewport = Instance.new("ViewportFrame")
+    viewport.Name = "Hologram"
+    viewport.Size = UDim2.new(1, -20, 1, -60)
+    viewport.Position = UDim2.fromOffset(10, 50)
+    viewport.BackgroundColor3 = Color3.fromRGB(8, 8, 12)
+    viewport.BorderSizePixel = 0
+    viewport.Ambient = Color3.fromRGB(200, 180, 255)
+    viewport.LightColor = Color3.fromRGB(255, 255, 255)
+    viewport.LightDirection = Vector3.new(-1, -1, -1)
+    viewport.Parent = panel
+
+    local vCorner = Instance.new("UICorner")
+    vCorner.CornerRadius = UDim.new(0, 8)
+    vCorner.Parent = viewport
+
+    local vStroke = Instance.new("UIStroke")
+    vStroke.Color = CONFIG.LightPurple2
+    vStroke.Thickness = 1
+    vStroke.Transparency = 0.5
+    vStroke.Parent = viewport
+
+    local world = Instance.new("WorldModel")
+    world.Parent = viewport
+
+    local cam = Instance.new("Camera")
+    cam.FieldOfView = 40
+    cam.Parent = viewport
+    viewport.CurrentCamera = cam
+
+    local cloneRef = nil
+    local angle = 0
+
+    local function rebuildClone()
+        if cloneRef then
+            pcall(function() cloneRef:Destroy() end)
+            cloneRef = nil
+        end
+
+        local char = LocalPlayer.Character
+        if not char then return end
+
+        local ok, clone = pcall(function()
+            return char:Clone()
+        end)
+        if not ok or not clone then return end
+
+        -- Clean scripts / tools
+        for _, d in ipairs(clone:GetDescendants()) do
+            if d:IsA("Script") or d:IsA("LocalScript") or d:IsA("Tool") then
+                pcall(function() d:Destroy() end)
+            end
+        end
+
+        -- White hologram look
+        for _, d in ipairs(clone:GetDescendants()) do
+            if d:IsA("BasePart") then
+                d.Color = Color3.fromRGB(255, 255, 255)
+                d.Material = Enum.Material.ForceField
+                d.Transparency = 0.35
+                d.Anchored = true
+                d.CanCollide = false
+            elseif d:IsA("Decal") or d:IsA("Texture") then
+                d.Transparency = 0.4
+            end
+        end
+
+        local highlight = Instance.new("Highlight")
+        highlight.FillColor = Color3.fromRGB(255, 255, 255)
+        highlight.OutlineColor = CONFIG.LightPurple
+        highlight.FillTransparency = 0.55
+        highlight.OutlineTransparency = 0.1
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.Parent = clone
+
+        clone.Parent = world
+        cloneRef = clone
+
+        local hrp = clone:FindFirstChild("HumanoidRootPart") or clone:FindFirstChildWhichIsA("BasePart")
+        if hrp then
+            cam.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 1.5, 6), hrp.Position + Vector3.new(0, 1, 0))
+        end
+    end
+
+    rebuildClone()
+
+    -- Slow rotate hologram
+    if Connections.PreviewRot then
+        pcall(function() Connections.PreviewRot:Disconnect() end)
+    end
+    Connections.PreviewRot = RunService.RenderStepped:Connect(function(dt)
+        if not cloneRef or not cloneRef.Parent then return end
+        local hrp = cloneRef:FindFirstChild("HumanoidRootPart") or cloneRef:FindFirstChildWhichIsA("BasePart")
+        if not hrp then return end
+
+        angle += dt * 0.6
+        local center = hrp.Position
+        local offset = Vector3.new(math.sin(angle) * 5.5, 1.4, math.cos(angle) * 5.5)
+        cam.CFrame = CFrame.new(center + offset, center + Vector3.new(0, 0.8, 0))
+    end)
+
+    -- Refresh clone on character respawn
+    LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(1)
+        rebuildClone()
+    end)
+
+    -- Soft purple glow pulse on stroke
+    task.spawn(function()
+        while panel and panel.Parent do
+            local t1 = TweenService:Create(stroke, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Transparency = 0.15
+            })
+            t1:Play()
+            t1.Completed:Wait()
+            local t2 = TweenService:Create(stroke, TweenInfo.new(1.4, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+                Transparency = 0.45
+            })
+            t2:Play()
+            t2.Completed:Wait()
+        end
+    end)
+end
+
+----------------------------------------------------------------
+-- STAR VISUALS
 ----------------------------------------------------------------
 local function CreateVisuals()
     if VisualGui then
@@ -931,7 +958,6 @@ local function CreateVisuals()
     container.BackgroundTransparency = 1
     container.ClipsDescendants = true
     container.Parent = gui
-
     VisualGui = gui
 
     local decor = Instance.new("ImageLabel")
@@ -950,85 +976,66 @@ local function CreateVisuals()
     task.spawn(function()
         while decor and decor.Parent do
             local up = TweenService:Create(decor, TweenInfo.new(1.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.fromOffset(102, 102),
-                ImageTransparency = 0.06
+                Size = UDim2.fromOffset(102, 102), ImageTransparency = 0.06
             })
-            up:Play()
-            up.Completed:Wait()
-
+            up:Play() up.Completed:Wait()
             local down = TweenService:Create(decor, TweenInfo.new(1.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-                Size = UDim2.fromOffset(84, 84),
-                ImageTransparency = 0.35
+                Size = UDim2.fromOffset(84, 84), ImageTransparency = 0.35
             })
-            down:Play()
-            down.Completed:Wait()
+            down:Play() down.Completed:Wait()
         end
     end)
 
-    if Connections.StarLoop then
-        pcall(function() Connections.StarLoop:Disconnect() end)
-    end
-
+    if Connections.StarLoop then pcall(function() Connections.StarLoop:Disconnect() end) end
     Connections.StarLoop = RunService.Heartbeat:Connect(function()
         if not container or not container.Parent then return end
         if math.random() > 0.031 then return end
-
         local star = Instance.new("ImageLabel")
-        star.Name = "FallingStar"
         star.BackgroundTransparency = 1
         star.Image = CONFIG.StarAssetId
         star.ImageColor3 = CONFIG.LightPurple
         star.ImageTransparency = math.random(18, 52) / 100
         star.ScaleType = Enum.ScaleType.Fit
         star.ZIndex = 1
-
         local size = math.random(9, 17)
         star.Size = UDim2.fromOffset(size, size)
         star.Position = UDim2.new(math.random(), 0, -0.05, 0)
         star.Parent = container
-
         local duration = math.random(42, 88) / 10
         local drift = (math.random() - 0.5) * 0.18
-
         local tw = TweenService:Create(star, TweenInfo.new(duration, Enum.EasingStyle.Linear), {
             Position = UDim2.new(star.Position.X.Scale + drift, 0, 1.08, 0),
             ImageTransparency = 1,
             Rotation = math.random(-55, 55)
         })
         tw:Play()
-        tw.Completed:Connect(function()
-            star:Destroy()
-        end)
+        tw.Completed:Connect(function() star:Destroy() end)
     end)
 end
 
 ----------------------------------------------------------------
--- SETUP / UNLOAD
+-- SETUP
 ----------------------------------------------------------------
 local function DashSetup()
     HookCharacter()
     StartBlockChecker()
-
-    if Connections.CharAdded then
-        pcall(function() Connections.CharAdded:Disconnect() end)
-    end
-
+    if Connections.CharAdded then pcall(function() Connections.CharAdded:Disconnect() end) end
     Connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function()
         task.wait(0.65)
-        if STATE.Enabled or STATE.Zcoolio then HookCharacter() end
+        if STATE.Enabled then HookCharacter() end
     end)
 end
 
 local function DashUnload()
     for name, conn in pairs(Connections) do
-        if name ~= "StarLoop" and name ~= "AutoBlock" and conn then
+        if name ~= "StarLoop" and name ~= "AutoBlock" and name ~= "PreviewRot" and conn then
             pcall(function() conn:Disconnect() end)
             Connections[name] = nil
         end
     end
     CancelActiveLock()
     STATE.Debounce = false
-    STATE.Blocked  = false
+    STATE.Blocked = false
 end
 
 LocalPlayer.CharacterRemoving:Connect(CancelActiveLock)
@@ -1043,33 +1050,27 @@ local CustomTheme = {
     }),
     ShadowColor = Color3.fromRGB(0, 0, 0),
     LiveAnimation = true,
-
     ContentColor = Color3.fromRGB(230, 225, 255),
     TitlingColor = Color3.fromRGB(210, 185, 255),
     ActionColor  = CONFIG.LightPurple,
-
     TabColor = Color3.fromRGB(220, 200, 255),
     TabBackground = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(18, 14, 28)),
         ColorSequenceKeypoint.new(1, Color3.fromRGB(28, 18, 42)),
     }),
     TabStroke = ColorSequence.new(CONFIG.LightPurple, CONFIG.LightPurple2),
-
     ElementGradient = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(16, 14, 24)),
         ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 16, 34)),
     }),
     ElementStroke = Color3.fromRGB(70, 50, 110),
     ElementStrokeHover = CONFIG.LightPurple,
-
     AccentColor = CONFIG.LightPurple,
     AccentStroke = CONFIG.LightPurple2,
     AccentGlow = 0.35,
-
     SliderBackground = Color3.fromRGB(25, 20, 40),
     SliderProgress = ColorSequence.new(CONFIG.LightPurple, CONFIG.LightPurple2),
     SliderHandle = Color3.fromRGB(235, 220, 255),
-
     ToggleTrack = Color3.fromRGB(30, 25, 45),
     ToggleKnobOff = Color3.fromRGB(90, 80, 120),
 }
@@ -1078,7 +1079,7 @@ local CustomTheme = {
 -- UI
 ----------------------------------------------------------------
 local Window = Rayfield:CreateWindow({
-    name = "Jaline Dash",
+    Name = "Jaline Dash",
     subtitle = "Premium Edition",
     theme = CustomTheme,
     configuration = {
@@ -1089,14 +1090,13 @@ local Window = Rayfield:CreateWindow({
 })
 
 task.defer(CreateVisuals)
+task.defer(CreateESPPreview)
 
-local Tab = Window:CreateTab({ name = "Jaline Dash", icon = 93364949241311 })
-local AutoBlockTab = Window:CreateTab({ name = "Auto Block", icon = 93364949241311 })
-local ZcoolioTab = Window:CreateTab({ name = "Zcoolio Tech", icon = 93364949241311 })
+local Tab = Window:CreateTab({ Name = "Jaline Dash", icon = 93364949241311 })
+local AutoBlockTab = Window:CreateTab({ Name = "Auto Block", icon = 93364949241311 })
 
--- Jaline Dash
 Tab:CreateToggle({
-    name = "Jaline Dash",
+    Name = "Jaline Dash",
     description = "Camera CFrame driven loop dash",
     flag = "JalineDashEnabled",
     value = false,
@@ -1113,7 +1113,7 @@ Tab:CreateToggle({
 })
 
 Tab:CreateToggle({
-    name = "Activate Inf Dash",
+    Name = "Activate Inf Dash",
     description = "Removes dash cooldown",
     flag = "InfDash",
     value = false,
@@ -1125,7 +1125,7 @@ Tab:CreateToggle({
 })
 
 Tab:CreateToggle({
-    name = "Body ESP",
+    Name = "Body ESP",
     description = "White body highlight",
     flag = "BodyESP",
     value = false,
@@ -1142,7 +1142,7 @@ Tab:CreateToggle({
 })
 
 Tab:CreateSlider({
-    name = "Detect Delay",
+    Name = "Detect Delay",
     flag = "DetectDelay",
     range = {0, 1.5},
     increment = 0.05,
@@ -1152,7 +1152,7 @@ Tab:CreateSlider({
 })
 
 Tab:CreateSlider({
-    name = "Flick Delay",
+    Name = "Flick Delay",
     flag = "FlickDelay",
     range = {0, 0.8},
     increment = 0.05,
@@ -1162,7 +1162,7 @@ Tab:CreateSlider({
 })
 
 Tab:CreateSlider({
-    name = "Lock Duration",
+    Name = "Lock Duration",
     flag = "LockDuration",
     range = {0.3, 3},
     increment = 0.1,
@@ -1172,7 +1172,7 @@ Tab:CreateSlider({
 })
 
 Tab:CreateSlider({
-    name = "Smoothness",
+    Name = "Smoothness",
     flag = "Smoothness",
     range = {50, 1000},
     increment = 10,
@@ -1180,9 +1180,8 @@ Tab:CreateSlider({
     callback = function(v) STATE.Responsiveness = v end,
 })
 
--- Auto Block
 AutoBlockTab:CreateToggle({
-    name = "Activate Auto Block",
+    Name = "Activate Auto Block",
     description = "Detects enemy attacks and auto blocks",
     flag = "AutoBlock",
     value = false,
@@ -1199,21 +1198,21 @@ AutoBlockTab:CreateToggle({
 })
 
 AutoBlockTab:CreateToggle({
-    name = "M1 After Block",
+    Name = "M1 After Block",
     flag = "M1AfterBlock",
     value = false,
     callback = function(value) STATE.M1AfterBlock = value end,
 })
 
 AutoBlockTab:CreateToggle({
-    name = "M1 Catch",
+    Name = "M1 Catch",
     flag = "M1Catch",
     value = false,
     callback = function(value) STATE.M1Catch = value end,
 })
 
 AutoBlockTab:CreateSlider({
-    name = "Normal Range",
+    Name = "Normal Range",
     flag = "NormalRange",
     range = {10, 80},
     increment = 1,
@@ -1222,7 +1221,7 @@ AutoBlockTab:CreateSlider({
 })
 
 AutoBlockTab:CreateSlider({
-    name = "Special Range",
+    Name = "Special Range",
     flag = "SpecialRange",
     range = {10, 100},
     increment = 1,
@@ -1231,7 +1230,7 @@ AutoBlockTab:CreateSlider({
 })
 
 AutoBlockTab:CreateSlider({
-    name = "Skill Range",
+    Name = "Skill Range",
     flag = "SkillRange",
     range = {10, 100},
     increment = 1,
@@ -1240,7 +1239,7 @@ AutoBlockTab:CreateSlider({
 })
 
 AutoBlockTab:CreateSlider({
-    name = "Skill Hold Delay",
+    Name = "Skill Hold Delay",
     flag = "SkillDelay",
     range = {0.3, 3},
     increment = 0.1,
@@ -1249,27 +1248,4 @@ AutoBlockTab:CreateSlider({
     callback = function(v) STATE.SkillDelay = v end,
 })
 
--- Zcoolio Tech
-ZcoolioTab:CreateToggle({
-    name = "Zcoolio Tech",
-    description = "Uppercut detect → drop to toes → look up",
-    flag = "ZcoolioTech",
-    value = false,
-    callback = function(value)
-        STATE.Zcoolio = value
-        if value then
-            HookCharacter()
-            if not Connections.CharAdded then
-                Connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function()
-                    task.wait(0.65)
-                    if STATE.Enabled or STATE.Zcoolio then HookCharacter() end
-                end)
-            end
-            Window:Notify({ title = "Zcoolio Tech", content = "ACTIVATED", duration = 2.5 })
-        else
-            Window:Notify({ title = "Zcoolio Tech", content = "DEACTIVATED", duration = 2.5 })
-        end
-    end,
-})
-
-print("[Jaline Dash] Loaded • Camera CFrame + Zcoolio Tech")
+print("[Jaline Dash] Loaded • ESP Preview • Zcoolio removed")
