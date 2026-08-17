@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    ESP Preview: higher level front view
+    ESP Preview character centered / up in frame
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -499,8 +499,7 @@ end
 
 ----------------------------------------------------------------
 -- ESP PREVIEW
--- Front-facing, camera UP / level (not looking down)
--- Thumb swipe = rotate
+-- Character UP / centered in frame (not stuck at bottom)
 ----------------------------------------------------------------
 local function MakePart(name, size, cf, parent)
     local p = Instance.new("Part")
@@ -575,7 +574,6 @@ local function TryCloneCharacter()
                 d.CFrame = d.CFrame - offset + Vector3.new(0, 3, 0)
             end
         end
-        -- Force upright (no tilt)
         local pivot = cloneHRP.Position
         local upright = CFrame.new(pivot)
         local delta = upright * cloneHRP.CFrame:Inverse()
@@ -672,7 +670,7 @@ local function CreateESPPreview()
     world.Parent = viewport
 
     local cam = Instance.new("Camera")
-    cam.FieldOfView = 28
+    cam.FieldOfView = 35
     cam.Parent = viewport
     viewport.CurrentCamera = cam
 
@@ -680,19 +678,30 @@ local function CreateESPPreview()
     local yaw = 0
     local centerPos = Vector3.new(0, 3, 0)
 
-    -- Level front view (camera UP with the character, not looking down)
-    local camDist = 11
-    local camHeight = 3.8   -- higher = more level with head/chest
-    local lookHeight = 3.6  -- look at upper body / face, not feet
+    -- Frame the body in the CENTER / UPPER area of the viewport
+    -- (looking slightly below head so character sits UP in the frame)
+    local camDist = 9.5
+    local camHeightOffset = 1.2   -- camera a bit above mid-body
+    local lookYOffset = 0.4      -- look slightly below center → pushes model UP on screen
 
     local function updateCamera()
         if not cloneRef then return end
         local pp = cloneRef.PrimaryPart or cloneRef:FindFirstChild("HumanoidRootPart") or cloneRef:FindFirstChildWhichIsA("BasePart")
-        if pp then centerPos = pp.Position end
+        if not pp then return end
+        centerPos = pp.Position
 
-        local offset = Vector3.new(math.sin(yaw) * camDist, camHeight, math.cos(yaw) * camDist)
-        local lookAt = centerPos + Vector3.new(0, lookHeight - 3, 0) -- aim at upper body
-        cam.CFrame = CFrame.new(centerPos + offset, lookAt)
+        -- Mid-body point (HRP is roughly torso center)
+        local mid = centerPos + Vector3.new(0, 0.8, 0)
+
+        local offset = Vector3.new(
+            math.sin(yaw) * camDist,
+            camHeightOffset,
+            math.cos(yaw) * camDist
+        )
+
+        -- Look at a point slightly BELOW mid so the character appears higher in the frame
+        local lookAt = mid + Vector3.new(0, lookYOffset, 0)
+        cam.CFrame = CFrame.new(mid + offset, lookAt)
     end
 
     local function rebuild()
@@ -976,4 +985,4 @@ AutoBlockTab:CreateSlider({ Name = "Special Range", flag = "SpecialRange", range
 AutoBlockTab:CreateSlider({ Name = "Skill Range", flag = "SkillRange", range = {10, 100}, increment = 1, value = STATE.SkillRange, callback = function(v) STATE.SkillRange = v end })
 AutoBlockTab:CreateSlider({ Name = "Skill Hold Delay", flag = "SkillDelay", range = {0.3, 3}, increment = 0.1, value = STATE.SkillDelay, suffix = "s", callback = function(v) STATE.SkillDelay = v end })
 
-print("[Jaline Dash] Loaded • ESP Preview level / up front view")
+print("[Jaline Dash] Loaded • ESP Preview character up / centered")
