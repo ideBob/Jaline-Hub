@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    ESP Preview: zoomed out, idle, natural colors
+    Mobile-draggable ESP Preview + Jump/Accuracy/Range/Cancel
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -11,6 +11,7 @@ local RunService         = game:GetService("RunService")
 local TweenService       = game:GetService("TweenService")
 local Workspace          = game:GetService("Workspace")
 local CoreGui            = game:GetService("CoreGui")
+local UserInputService   = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
@@ -37,6 +38,12 @@ local STATE = {
     BodyESP = false, InfDash = false,
     AutoBlock = false, M1AfterBlock = false, M1Catch = false,
     NormalRange = 30, SpecialRange = 50, SkillRange = 50, SkillDelay = 1.2,
+
+    -- From image settings
+    Jump = 55,
+    Accuracy = 15,
+    AimRange = 8,
+    Cancel = 0.4,
 }
 
 local Connections = {}
@@ -81,6 +88,16 @@ local function GetCharParts()
     return nil, nil, nil
 end
 
+local function ApplyJumpPower()
+    local _, humanoid = GetCharParts()
+    if humanoid then
+        pcall(function()
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = STATE.Jump
+        end)
+    end
+end
+
 local function FireDashQW()
     local char = LocalPlayer.Character
     if not char then return end
@@ -114,7 +131,9 @@ local function FindBestTarget()
     if not live then return nil end
     local _, _, hrp = GetCharParts()
     if not hrp then return nil end
-    local bestRoot, bestDist = nil, STATE.TargetRadius
+    -- Prefer AimRange when set, else TargetRadius
+    local maxDist = math.max(STATE.AimRange, STATE.TargetRadius)
+    local bestRoot, bestDist = nil, maxDist
     for _, model in ipairs(live:GetChildren()) do
         if model:IsA("Model") and model ~= LocalPlayer.Character then
             local root = model:FindFirstChild("HumanoidRootPart")
@@ -176,8 +195,10 @@ local function StartHorizontalLock(targetRoot, duration)
         else
             desiredLook = GetCameraFlatLook()
         end
+        -- Accuracy softens blend (higher accuracy = more target lock)
+        local acc = math.clamp(STATE.Accuracy / 100, 0.05, 1)
         local camLook = GetCameraFlatLook()
-        local blended = (desiredLook * 0.7 + camLook * 0.3)
+        local blended = (desiredLook * acc + camLook * (1 - acc))
         blended = blended.Magnitude < 0.001 and desiredLook or blended.Unit
         local desiredChar = CFrame.new(hrpPos, hrpPos + blended)
         local resp = math.clamp(STATE.Responsiveness, 1, 10000)
@@ -208,7 +229,9 @@ end
 local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
     STATE.Debounce = true
-    local waitDetect, waitRemote, lockDur, cooldown = STATE.WaitDetect, STATE.WaitRemote, STATE.LockDuration, STATE.Cooldown
+    local waitDetect, waitRemote, lockDur = STATE.WaitDetect, STATE.WaitRemote, STATE.LockDuration
+    local cooldown = math.max(STATE.Cooldown, STATE.Cancel) -- Cancel acts as min cooldown buffer
+
     local t0 = tick()
     while tick() - t0 < waitDetect do
         if not STATE.Enabled or STATE.Blocked then STATE.Debounce = false return end
@@ -267,7 +290,10 @@ local function HookCharacter()
     local char = LocalPlayer.Character
     if not char then return end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid then Connections.Anim = humanoid.AnimationPlayed:Connect(OnAnimationPlayed) end
+    if humanoid then
+        Connections.Anim = humanoid.AnimationPlayed:Connect(OnAnimationPlayed)
+        ApplyJumpPower()
+    end
 end
 
 local function StartBlockChecker()
@@ -480,8 +506,68 @@ local function StopBodyESP()
 end
 
 ----------------------------------------------------------------
--- ESP PREVIEW: zoomed out, IDLE, natural colors (no white)
+-- ESP PREVIEW — mobile thumb drag
 ----------------------------------------------------------------
+local function MakeDraggable(frame)
+    local dragging = false
+    local dragStart = nil
+    local startPos = nil
+
+    local function begin(input)
+        dragging = true
+        dragStart = input.Position
+        startPos = frame.Position
+    end
+
+    local function update(input)
+        if not dragging then return end
+        local delta = input.Position - dragStart
+        frame.Position = UDim2.new(
+            startPos.X.Scale,
+            startPos.X.Offset + delta.X,
+            startPos.Y.Scale,
+            startPos.Y.Offset + delta.Y
+        )
+    end
+
+    local function finish()
+        dragging = false
+    end
+
+    frame.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            begin(input)
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    finish()
+                end
+            end)
+        end
+    end)
+
+    frame.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch then
+            update(input)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch) then
+            update(input)
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+            or input.UserInputType == Enum.UserInputType.Touch then
+            finish()
+        end
+    end)
+end
+
 local function MakePart(name, size, cf, parent)
     local p = Instance.new("Part")
     p.Name = name
@@ -490,8 +576,7 @@ local function MakePart(name, size, cf, parent)
     p.Anchored = true
     p.CanCollide = false
     p.Material = Enum.Material.SmoothPlastic
-    p.Color = Color3.fromRGB(90, 90, 100) -- neutral, not white
-    p.Transparency = 0
+    p.Color = Color3.fromRGB(90, 90, 100)
     p.Parent = parent
     return p
 end
@@ -521,35 +606,28 @@ local function TryCloneCharacter()
     if not char then return nil end
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
-
     local wasArchivable = char.Archivable
     char.Archivable = true
     local ok, clone = pcall(function() return char:Clone() end)
     char.Archivable = wasArchivable
     if not ok or not clone then return nil end
-
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("LocalScript") or d:IsA("Script") or d:IsA("Tool") or d:IsA("Sound") then
             pcall(function() d:Destroy() end)
         end
     end
-
-    -- Keep natural colors — only anchor, no white / ForceField
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("BasePart") then
             d.Anchored = true
             d.CanCollide = false
         end
     end
-
-    -- Soft purple outline only (no white fill)
     local hl = Instance.new("Highlight")
     hl.FillColor = CONFIG.LightPurple
     hl.OutlineColor = CONFIG.LightPurple
     hl.FillTransparency = 0.9
     hl.OutlineTransparency = 0.15
     hl.Parent = clone
-
     local cloneHRP = clone:FindFirstChild("HumanoidRootPart")
     if cloneHRP then
         local offset = cloneHRP.Position
@@ -583,9 +661,11 @@ local function CreateESPPreview()
     panel.BackgroundColor3 = Color3.fromRGB(10, 10, 14)
     panel.BorderSizePixel = 0
     panel.Active = true
-    panel.Draggable = true
     panel.Parent = gui
     Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
+
+    -- Touch-friendly drag (thumb)
+    MakeDraggable(panel)
 
     local stroke = Instance.new("UIStroke")
     stroke.Color = CONFIG.LightPurple
@@ -616,7 +696,7 @@ local function CreateESPPreview()
     sub.Size = UDim2.new(1, -16, 0, 16)
     sub.Position = UDim2.fromOffset(10, 30)
     sub.BackgroundTransparency = 1
-    sub.Text = "Idle preview"
+    sub.Text = "Drag with thumb"
     sub.Font = Enum.Font.Gotham
     sub.TextSize = 11
     sub.TextColor3 = Color3.fromRGB(170, 160, 200)
@@ -645,18 +725,16 @@ local function CreateESPPreview()
     world.Parent = viewport
 
     local cam = Instance.new("Camera")
-    cam.FieldOfView = 30 -- slightly tighter FOV + far distance = zoomed out look
+    cam.FieldOfView = 30
     cam.Parent = viewport
     viewport.CurrentCamera = cam
 
     local cloneRef = nil
 
-    -- ZOOMED OUT + IDLE (no orbit)
     local function setCameraIdle(model)
         local pp = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart") or model:FindFirstChildWhichIsA("BasePart")
         if not pp then return end
         local center = pp.Position
-        -- Farther distance = zoomed out
         cam.CFrame = CFrame.new(center + Vector3.new(0, 2.2, 14), center + Vector3.new(0, 1.0, 0))
     end
 
@@ -677,7 +755,6 @@ local function CreateESPPreview()
         end
     end)
 
-    -- NO rotation loop — stays idle
     if Connections.PreviewRot then
         pcall(function() Connections.PreviewRot:Disconnect() end)
         Connections.PreviewRot = nil
@@ -686,6 +763,7 @@ local function CreateESPPreview()
     LocalPlayer.CharacterAdded:Connect(function()
         task.wait(1.2)
         rebuild()
+        ApplyJumpPower()
     end)
 
     task.spawn(function()
@@ -756,10 +834,12 @@ end
 local function DashSetup()
     HookCharacter()
     StartBlockChecker()
+    ApplyJumpPower()
     if Connections.CharAdded then pcall(function() Connections.CharAdded:Disconnect() end) end
     Connections.CharAdded = LocalPlayer.CharacterAdded:Connect(function()
         task.wait(0.65)
         if STATE.Enabled then HookCharacter() end
+        ApplyJumpPower()
     end)
 end
 
@@ -776,6 +856,10 @@ local function DashUnload()
 end
 
 LocalPlayer.CharacterRemoving:Connect(CancelActiveLock)
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(0.8)
+    ApplyJumpPower()
+end)
 
 local CustomTheme = {
     WindowColor = ColorSequence.new({
@@ -820,6 +904,7 @@ task.defer(CreateVisuals)
 task.defer(CreateESPPreview)
 
 local Tab = Window:CreateTab({ Name = "Jaline Dash", icon = 93364949241311 })
+local SettingsTab = Window:CreateTab({ Name = "Settings", icon = 93364949241311 })
 local AutoBlockTab = Window:CreateTab({ Name = "Auto Block", icon = 93364949241311 })
 
 Tab:CreateToggle({
@@ -863,6 +948,51 @@ Tab:CreateSlider({ Name = "Flick Delay", flag = "FlickDelay", range = {0, 0.8}, 
 Tab:CreateSlider({ Name = "Lock Duration", flag = "LockDuration", range = {0.3, 3}, increment = 0.1, value = STATE.LockDuration, suffix = "s", callback = function(v) STATE.LockDuration = v end })
 Tab:CreateSlider({ Name = "Smoothness", flag = "Smoothness", range = {50, 1000}, increment = 10, value = STATE.Responsiveness, callback = function(v) STATE.Responsiveness = v end })
 
+-- Settings from image
+SettingsTab:CreateSlider({
+    Name = "Jump",
+    description = "Character JumpPower",
+    flag = "JumpPower",
+    range = {0, 120},
+    increment = 1,
+    value = STATE.Jump,
+    callback = function(v)
+        STATE.Jump = v
+        ApplyJumpPower()
+    end,
+})
+
+SettingsTab:CreateSlider({
+    Name = "Accuracy",
+    description = "Lock aim strength (higher = tighter)",
+    flag = "Accuracy",
+    range = {1, 100},
+    increment = 1,
+    value = STATE.Accuracy,
+    callback = function(v) STATE.Accuracy = v end,
+})
+
+SettingsTab:CreateSlider({
+    Name = "Range",
+    description = "Target search range",
+    flag = "AimRange",
+    range = {1, 50},
+    increment = 1,
+    value = STATE.AimRange,
+    callback = function(v) STATE.AimRange = v end,
+})
+
+SettingsTab:CreateSlider({
+    Name = "Cancel",
+    description = "Min cooldown after sequence",
+    flag = "Cancel",
+    range = {0, 2},
+    increment = 0.05,
+    value = STATE.Cancel,
+    suffix = "s",
+    callback = function(v) STATE.Cancel = v end,
+})
+
 AutoBlockTab:CreateToggle({
     Name = "Activate Auto Block",
     description = "Detects enemy attacks and auto blocks",
@@ -882,4 +1012,4 @@ AutoBlockTab:CreateSlider({ Name = "Special Range", flag = "SpecialRange", range
 AutoBlockTab:CreateSlider({ Name = "Skill Range", flag = "SkillRange", range = {10, 100}, increment = 1, value = STATE.SkillRange, callback = function(v) STATE.SkillRange = v end })
 AutoBlockTab:CreateSlider({ Name = "Skill Hold Delay", flag = "SkillDelay", range = {0.3, 3}, increment = 0.1, value = STATE.SkillDelay, suffix = "s", callback = function(v) STATE.SkillDelay = v end })
 
-print("[Jaline Dash] Loaded • ESP Preview zoomed out + idle + natural colors")
+print("[Jaline Dash] Loaded • Thumb-draggable ESP Preview + Settings")
