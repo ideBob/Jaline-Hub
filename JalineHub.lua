@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    ESP Preview character centered / up in frame
+    ESP Preview: character raised in frame
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -498,8 +498,7 @@ local function StopBodyESP()
 end
 
 ----------------------------------------------------------------
--- ESP PREVIEW
--- Character UP / centered in frame (not stuck at bottom)
+-- ESP PREVIEW — character raised UP in the frame
 ----------------------------------------------------------------
 local function MakePart(name, size, cf, parent)
     local p = Instance.new("Part")
@@ -517,14 +516,15 @@ end
 local function BuildFallbackMannequin()
     local model = Instance.new("Model")
     model.Name = "ESPHologram"
-    local root = MakePart("HumanoidRootPart", Vector3.new(2, 2, 1), CFrame.new(0, 3, 0), model)
+    -- Place higher so it sits up in the viewport
+    local root = MakePart("HumanoidRootPart", Vector3.new(2, 2, 1), CFrame.new(0, 5, 0), model)
     model.PrimaryPart = root
-    MakePart("Head", Vector3.new(1.2, 1.2, 1.2), CFrame.new(0, 4.6, 0), model)
-    MakePart("Torso", Vector3.new(2, 2, 1), CFrame.new(0, 3, 0), model)
-    MakePart("Left Arm", Vector3.new(1, 2, 1), CFrame.new(-1.5, 3, 0), model)
-    MakePart("Right Arm", Vector3.new(1, 2, 1), CFrame.new(1.5, 3, 0), model)
-    MakePart("Left Leg", Vector3.new(1, 2, 1), CFrame.new(-0.5, 1, 0), model)
-    MakePart("Right Leg", Vector3.new(1, 2, 1), CFrame.new(0.5, 1, 0), model)
+    MakePart("Head", Vector3.new(1.2, 1.2, 1.2), CFrame.new(0, 6.6, 0), model)
+    MakePart("Torso", Vector3.new(2, 2, 1), CFrame.new(0, 5, 0), model)
+    MakePart("Left Arm", Vector3.new(1, 2, 1), CFrame.new(-1.5, 5, 0), model)
+    MakePart("Right Arm", Vector3.new(1, 2, 1), CFrame.new(1.5, 5, 0), model)
+    MakePart("Left Leg", Vector3.new(1, 2, 1), CFrame.new(-0.5, 3, 0), model)
+    MakePart("Right Leg", Vector3.new(1, 2, 1), CFrame.new(0.5, 3, 0), model)
     local hl = Instance.new("Highlight")
     hl.FillColor = CONFIG.LightPurple
     hl.OutlineColor = CONFIG.LightPurple
@@ -569,9 +569,10 @@ local function TryCloneCharacter()
     local cloneHRP = clone:FindFirstChild("HumanoidRootPart")
     if cloneHRP then
         local offset = cloneHRP.Position
+        -- Raise model so it sits higher in the viewport (Y = 5 instead of 3)
         for _, d in ipairs(clone:GetDescendants()) do
             if d:IsA("BasePart") then
-                d.CFrame = d.CFrame - offset + Vector3.new(0, 3, 0)
+                d.CFrame = d.CFrame - offset + Vector3.new(0, 5, 0)
             end
         end
         local pivot = cloneHRP.Position
@@ -670,38 +671,26 @@ local function CreateESPPreview()
     world.Parent = viewport
 
     local cam = Instance.new("Camera")
-    cam.FieldOfView = 35
+    cam.FieldOfView = 40
     cam.Parent = viewport
     viewport.CurrentCamera = cam
 
     local cloneRef = nil
     local yaw = 0
-    local centerPos = Vector3.new(0, 3, 0)
-
-    -- Frame the body in the CENTER / UPPER area of the viewport
-    -- (looking slightly below head so character sits UP in the frame)
-    local camDist = 9.5
-    local camHeightOffset = 1.2   -- camera a bit above mid-body
-    local lookYOffset = 0.4      -- look slightly below center → pushes model UP on screen
 
     local function updateCamera()
         if not cloneRef then return end
         local pp = cloneRef.PrimaryPart or cloneRef:FindFirstChild("HumanoidRootPart") or cloneRef:FindFirstChildWhichIsA("BasePart")
         if not pp then return end
-        centerPos = pp.Position
 
-        -- Mid-body point (HRP is roughly torso center)
-        local mid = centerPos + Vector3.new(0, 0.8, 0)
+        -- Center of character (raised model ~ Y 5)
+        local focus = pp.Position + Vector3.new(0, 0.5, 0)
 
-        local offset = Vector3.new(
-            math.sin(yaw) * camDist,
-            camHeightOffset,
-            math.cos(yaw) * camDist
-        )
+        local dist = 10
+        local height = 0.3 -- almost level — keeps body centered vertically in frame
+        local offset = Vector3.new(math.sin(yaw) * dist, height, math.cos(yaw) * dist)
 
-        -- Look at a point slightly BELOW mid so the character appears higher in the frame
-        local lookAt = mid + Vector3.new(0, lookYOffset, 0)
-        cam.CFrame = CFrame.new(mid + offset, lookAt)
+        cam.CFrame = CFrame.new(focus + offset, focus)
     end
 
     local function rebuild()
@@ -985,4 +974,4 @@ AutoBlockTab:CreateSlider({ Name = "Special Range", flag = "SpecialRange", range
 AutoBlockTab:CreateSlider({ Name = "Skill Range", flag = "SkillRange", range = {10, 100}, increment = 1, value = STATE.SkillRange, callback = function(v) STATE.SkillRange = v end })
 AutoBlockTab:CreateSlider({ Name = "Skill Hold Delay", flag = "SkillDelay", range = {0.3, 3}, increment = 0.1, value = STATE.SkillDelay, suffix = "s", callback = function(v) STATE.SkillDelay = v end })
 
-print("[Jaline Dash] Loaded • ESP Preview character up / centered")
+print("[Jaline Dash] Loaded • ESP Preview character raised")
