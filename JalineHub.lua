@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    ESP Preview: front idle + thumb rotate
+    ESP Preview: higher level front view
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -499,8 +499,8 @@ end
 
 ----------------------------------------------------------------
 -- ESP PREVIEW
--- Idle front-facing character
--- Thumb swipe left/right = rotate character (not move panel)
+-- Front-facing, camera UP / level (not looking down)
+-- Thumb swipe = rotate
 ----------------------------------------------------------------
 local function MakePart(name, size, cf, parent)
     local p = Instance.new("Part")
@@ -567,7 +567,6 @@ local function TryCloneCharacter()
     hl.OutlineTransparency = 0.15
     hl.Parent = clone
 
-    -- Move to origin and force upright front-facing pose
     local cloneHRP = clone:FindFirstChild("HumanoidRootPart")
     if cloneHRP then
         local offset = cloneHRP.Position
@@ -576,9 +575,9 @@ local function TryCloneCharacter()
                 d.CFrame = d.CFrame - offset + Vector3.new(0, 3, 0)
             end
         end
-        -- Straight, looking +Z (front toward camera when cam is at +Z)
+        -- Force upright (no tilt)
         local pivot = cloneHRP.Position
-        local upright = CFrame.new(pivot) * CFrame.Angles(0, 0, 0)
+        local upright = CFrame.new(pivot)
         local delta = upright * cloneHRP.CFrame:Inverse()
         for _, d in ipairs(clone:GetDescendants()) do
             if d:IsA("BasePart") then
@@ -659,7 +658,7 @@ local function CreateESPPreview()
     viewport.Ambient = Color3.fromRGB(140, 140, 160)
     viewport.LightColor = Color3.fromRGB(220, 220, 230)
     viewport.LightDirection = Vector3.new(0, -1, -1)
-    viewport.Active = true -- needed for input
+    viewport.Active = true
     viewport.Parent = panel
     Instance.new("UICorner", viewport).CornerRadius = UDim.new(0, 8)
 
@@ -673,23 +672,27 @@ local function CreateESPPreview()
     world.Parent = viewport
 
     local cam = Instance.new("Camera")
-    cam.FieldOfView = 30
+    cam.FieldOfView = 28
     cam.Parent = viewport
     viewport.CurrentCamera = cam
 
     local cloneRef = nil
-    local yaw = 0 -- rotation around Y (radians)
+    local yaw = 0
     local centerPos = Vector3.new(0, 3, 0)
-    local camDist = 14
-    local camHeight = 2.2
+
+    -- Level front view (camera UP with the character, not looking down)
+    local camDist = 11
+    local camHeight = 3.8   -- higher = more level with head/chest
+    local lookHeight = 3.6  -- look at upper body / face, not feet
 
     local function updateCamera()
         if not cloneRef then return end
         local pp = cloneRef.PrimaryPart or cloneRef:FindFirstChild("HumanoidRootPart") or cloneRef:FindFirstChildWhichIsA("BasePart")
         if pp then centerPos = pp.Position end
-        -- Camera orbits around character; character stays upright facing its own forward
+
         local offset = Vector3.new(math.sin(yaw) * camDist, camHeight, math.cos(yaw) * camDist)
-        cam.CFrame = CFrame.new(centerPos + offset, centerPos + Vector3.new(0, 1, 0))
+        local lookAt = centerPos + Vector3.new(0, lookHeight - 3, 0) -- aim at upper body
+        cam.CFrame = CFrame.new(centerPos + offset, lookAt)
     end
 
     local function rebuild()
@@ -698,7 +701,7 @@ local function CreateESPPreview()
         if not clone then clone = BuildFallbackMannequin() end
         clone.Parent = world
         cloneRef = clone
-        yaw = 0 -- reset to front
+        yaw = 0
         updateCamera()
     end
 
@@ -710,7 +713,6 @@ local function CreateESPPreview()
         end
     end)
 
-    -- Thumb / mouse horizontal drag → rotate yaw (character appears to turn)
     local dragging = false
     local lastX = 0
 
@@ -730,7 +732,6 @@ local function CreateESPPreview()
         end
         local dx = input.Position.X - lastX
         lastX = input.Position.X
-        -- Swipe right → rotate one way, left the other
         yaw = yaw - dx * 0.012
         updateCamera()
     end
@@ -746,7 +747,6 @@ local function CreateESPPreview()
     viewport.InputChanged:Connect(onMove)
     panel.InputBegan:Connect(onBegin)
     panel.InputChanged:Connect(onMove)
-
     UserInputService.InputChanged:Connect(function(input)
         if dragging then onMove(input) end
     end)
@@ -976,4 +976,4 @@ AutoBlockTab:CreateSlider({ Name = "Special Range", flag = "SpecialRange", range
 AutoBlockTab:CreateSlider({ Name = "Skill Range", flag = "SkillRange", range = {10, 100}, increment = 1, value = STATE.SkillRange, callback = function(v) STATE.SkillRange = v end })
 AutoBlockTab:CreateSlider({ Name = "Skill Hold Delay", flag = "SkillDelay", range = {0.3, 3}, increment = 0.1, value = STATE.SkillDelay, suffix = "s", callback = function(v) STATE.SkillDelay = v end })
 
-print("[Jaline Dash] Loaded • Front idle ESP Preview + thumb rotate")
+print("[Jaline Dash] Loaded • ESP Preview level / up front view")
