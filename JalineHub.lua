@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    Fixed ESP Preview hologram
+    ESP Preview: zoomed out, idle, natural colors
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -19,52 +19,26 @@ if Workspace:GetAttribute("NoDashCooldown") == nil then
     Workspace:SetAttribute("NoDashCooldown", false)
 end
 
-----------------------------------------------------------------
--- CONFIG
-----------------------------------------------------------------
 local CONFIG = {
     AnimDetectId = "10503381238",
     BlockAnimId  = "10471478869",
-
     StarAssetId  = "rbxassetid://241594819",
     GifAssetId   = "rbxassetid://5860841663",
-
     LightPurple  = Color3.fromRGB(190, 145, 255),
     LightPurple2 = Color3.fromRGB(160, 110, 255),
     ESPColor     = Color3.fromRGB(255, 255, 255),
-
     ESPUpdateRate = 0.20,
 }
 
-----------------------------------------------------------------
--- STATE
-----------------------------------------------------------------
 local STATE = {
-    Enabled        = false,
-    Debounce       = false,
-    Blocked        = false,
-    WaitDetect     = 0.30,
-    WaitRemote     = 0.10,
-    LockDuration   = 1.50,
-    Cooldown       = 1.00,
-    TargetRadius   = 50,
-    Responsiveness = 650,
-
-    BodyESP        = false,
-    InfDash        = false,
-
-    AutoBlock      = false,
-    M1AfterBlock   = false,
-    M1Catch        = false,
-    NormalRange    = 30,
-    SpecialRange   = 50,
-    SkillRange     = 50,
-    SkillDelay     = 1.2,
+    Enabled = false, Debounce = false, Blocked = false,
+    WaitDetect = 0.30, WaitRemote = 0.10, LockDuration = 1.50, Cooldown = 1.00,
+    TargetRadius = 50, Responsiveness = 650,
+    BodyESP = false, InfDash = false,
+    AutoBlock = false, M1AfterBlock = false, M1Catch = false,
+    NormalRange = 30, SpecialRange = 50, SkillRange = 50, SkillDelay = 1.2,
 }
 
-----------------------------------------------------------------
--- INTERNAL
-----------------------------------------------------------------
 local Connections = {}
 local ActiveLockCleanup = nil
 local ESPObjects = {}
@@ -72,11 +46,7 @@ local VisualGui = nil
 local PreviewGui = nil
 local LastCatch = 0
 
-----------------------------------------------------------------
--- AUTO BLOCK DATA
-----------------------------------------------------------------
 local ComboIDs = {10480793962, 10480796021}
-
 local AllIDs = {
     Saitama = {10469493270, 10469630950, 10469639222, 10469643643, special = 10479335397},
     Garou = {13532562418, 13532600125, 13532604085, 13294471966, special = 10479335397},
@@ -88,7 +58,6 @@ local AllIDs = {
     Dragon = {17889458563, 17889461810, 17889471098, 17889290569, special = 10479335397},
     Tech = {123005629431309, 100059874351664, 104895379416342, 134775406437626, special = 10479335397},
 }
-
 local SkillIDs = {
     [10468665991] = true, [10466974800] = true, [10471336737] = true, [12510170988] = true,
     [12272894215] = true, [12296882427] = true, [12307656616] = true,
@@ -103,17 +72,12 @@ local SkillIDs = {
     [113166426814229] = true, [116753755471636] = true, [116153572280464] = true, [114095570398448] = true, [77509627104305] = true
 }
 
-----------------------------------------------------------------
--- UTILS
-----------------------------------------------------------------
 local function GetCharParts()
     local char = LocalPlayer.Character
     if not char then return nil, nil, nil end
     local humanoid = char:FindFirstChildOfClass("Humanoid")
     local hrp = char:FindFirstChild("HumanoidRootPart")
-    if humanoid and hrp then
-        return char, humanoid, hrp
-    end
+    if humanoid and hrp then return char, humanoid, hrp end
     return nil, nil, nil
 end
 
@@ -122,13 +86,7 @@ local function FireDashQW()
     if not char then return end
     local comm = char:FindFirstChild("Communicate")
     if comm and typeof(comm.FireServer) == "function" then
-        pcall(function()
-            comm:FireServer({
-                Dash = Enum.KeyCode.W,
-                Key  = Enum.KeyCode.Q,
-                Goal = "KeyPress"
-            })
-        end)
+        pcall(function() comm:FireServer({ Dash = Enum.KeyCode.W, Key = Enum.KeyCode.Q, Goal = "KeyPress" }) end)
     end
 end
 
@@ -137,12 +95,9 @@ local function FireRemote(goal, mobile)
     if not char then return end
     local comm = char:FindFirstChild("Communicate")
     if not comm then return end
-    local args = {{
-        Goal = goal,
-        Key = (goal == "KeyPress" or goal == "KeyRelease") and Enum.KeyCode.F or nil,
-        Mobile = mobile or nil
-    }}
-    pcall(function() comm:FireServer(unpack(args)) end)
+    pcall(function()
+        comm:FireServer({{ Goal = goal, Key = (goal == "KeyPress" or goal == "KeyRelease") and Enum.KeyCode.F or nil, Mobile = mobile or nil }})
+    end)
 end
 
 local function GetCameraFlatLook()
@@ -154,9 +109,6 @@ local function GetCameraFlatLook()
     return flat.Unit
 end
 
-----------------------------------------------------------------
--- TARGET FINDING
-----------------------------------------------------------------
 local function FindBestTarget()
     local live = Workspace:FindFirstChild("Live")
     if not live then return nil end
@@ -166,15 +118,12 @@ local function FindBestTarget()
     for _, model in ipairs(live:GetChildren()) do
         if model:IsA("Model") and model ~= LocalPlayer.Character then
             local root = model:FindFirstChild("HumanoidRootPart")
-            local hum  = model:FindFirstChildOfClass("Humanoid")
+            local hum = model:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 then
                 local valid = (model.Name == "Weakest Dummy") or (Players:GetPlayerFromCharacter(model) ~= nil)
                 if valid then
                     local dist = (root.Position - hrp.Position).Magnitude
-                    if dist < bestDist then
-                        bestDist = dist
-                        bestRoot = root
-                    end
+                    if dist < bestDist then bestDist = dist bestRoot = root end
                 end
             end
         end
@@ -182,9 +131,6 @@ local function FindBestTarget()
     return bestRoot
 end
 
-----------------------------------------------------------------
--- BLOCK DETECTION
-----------------------------------------------------------------
 local function HasBlockingAnim(model)
     local hum = model and model:FindFirstChildOfClass("Humanoid")
     if not hum then return false end
@@ -212,9 +158,6 @@ local function IsAnyoneBlocking()
     return false
 end
 
-----------------------------------------------------------------
--- CAMERA + CHARACTER LOCK
-----------------------------------------------------------------
 local function StartHorizontalLock(targetRoot, duration)
     if duration <= 0 then return nil end
     local _, humanoid, hrp = GetCharParts()
@@ -225,7 +168,6 @@ local function StartHorizontalLock(targetRoot, duration)
     conn = RunService.RenderStepped:Connect(function(dt)
         if STATE.Blocked or not STATE.Enabled then if conn then conn:Disconnect() end return end
         if not hrp.Parent then if conn then conn:Disconnect() end return end
-
         local hrpPos = hrp.Position
         local desiredLook
         if targetRoot and targetRoot.Parent then
@@ -234,27 +176,21 @@ local function StartHorizontalLock(targetRoot, duration)
         else
             desiredLook = GetCameraFlatLook()
         end
-
         local camLook = GetCameraFlatLook()
         local blended = (desiredLook * 0.7 + camLook * 0.3)
         blended = blended.Magnitude < 0.001 and desiredLook or blended.Unit
-
         local desiredChar = CFrame.new(hrpPos, hrpPos + blended)
         local resp = math.clamp(STATE.Responsiveness, 1, 10000)
-        if resp >= 900 then
-            pcall(function() hrp.CFrame = desiredChar end)
+        if resp >= 900 then pcall(function() hrp.CFrame = desiredChar end)
         else
             local alpha = 1 - math.exp(-0.028 * resp * dt)
             pcall(function() hrp.CFrame = hrp.CFrame:Lerp(desiredChar, math.clamp(alpha, 0, 1)) end)
         end
-
         if cam then
             local camPos = cam.CFrame.Position
             local lookTarget = (targetRoot and targetRoot.Parent) and (targetRoot.Position + Vector3.new(0, 1.5, 0)) or (camPos + blended * 20)
-            local desiredCam = CFrame.new(camPos, lookTarget)
-            pcall(function() cam.CFrame = cam.CFrame:Lerp(desiredCam, math.clamp(1 - math.exp(-12 * dt), 0, 1)) end)
+            pcall(function() cam.CFrame = cam.CFrame:Lerp(CFrame.new(camPos, lookTarget), math.clamp(1 - math.exp(-12 * dt), 0, 1)) end)
         end
-
         if tick() - startTime >= duration then if conn then conn:Disconnect() end end
     end)
     return function() if conn then pcall(function() conn:Disconnect() end) end end
@@ -269,44 +205,28 @@ local function CancelActiveLock()
     end
 end
 
-----------------------------------------------------------------
--- MAIN SEQUENCE
-----------------------------------------------------------------
 local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
     STATE.Debounce = true
-
     local waitDetect, waitRemote, lockDur, cooldown = STATE.WaitDetect, STATE.WaitRemote, STATE.LockDuration, STATE.Cooldown
-
     local t0 = tick()
     while tick() - t0 < waitDetect do
         if not STATE.Enabled or STATE.Blocked then STATE.Debounce = false return end
         RunService.Heartbeat:Wait()
     end
     if not STATE.Enabled or STATE.Blocked then STATE.Debounce = false return end
-
     local char, humanoid, hrp = GetCharParts()
     if not humanoid or not hrp then STATE.Debounce = false return end
-
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
-
     do
         local camLook = GetCameraFlatLook()
         pcall(function() hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + camLook) end)
         local cam = Workspace.CurrentCamera
-        if cam then
-            local camPos = cam.CFrame.Position
-            pcall(function() cam.CFrame = CFrame.new(camPos, camPos + camLook * 20) end)
-        end
+        if cam then local camPos = cam.CFrame.Position pcall(function() cam.CFrame = CFrame.new(camPos, camPos + camLook * 20) end) end
     end
-
-    pcall(function()
-        humanoid.Jump = true
-        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
-    end)
+    pcall(function() humanoid.Jump = true humanoid:ChangeState(Enum.HumanoidStateType.Jumping) end)
     FireDashQW()
-
     local t2 = tick()
     while tick() - t2 < waitRemote do
         if not STATE.Enabled or STATE.Blocked then
@@ -319,10 +239,8 @@ local function RunSequence()
         pcall(function() if humanoid.Parent then humanoid.AutoRotate = prevAuto end end)
         STATE.Debounce = false return
     end
-
     local target = FindBestTarget()
     if not STATE.Blocked then ActiveLockCleanup = StartHorizontalLock(target, lockDur) end
-
     task.spawn(function()
         local keepUntil = tick() + math.max(lockDur, 1.0)
         while tick() < keepUntil do
@@ -332,23 +250,15 @@ local function RunSequence()
         end
         pcall(function() if humanoid and humanoid.Parent then humanoid.AutoRotate = prevAuto end end)
     end)
-
-    task.delay(lockDur, function()
-        if ActiveLockCleanup then pcall(ActiveLockCleanup) ActiveLockCleanup = nil end
-    end)
+    task.delay(lockDur, function() if ActiveLockCleanup then pcall(ActiveLockCleanup) ActiveLockCleanup = nil end end)
     task.delay(cooldown, function() STATE.Debounce = false end)
 end
 
-----------------------------------------------------------------
--- ANIMATION HOOKS
-----------------------------------------------------------------
 local function OnAnimationPlayed(track)
     if not track or not track.Animation then return end
     local id = tostring(track.Animation.AnimationId or "")
     if STATE.Enabled and not STATE.Debounce and not STATE.Blocked then
-        if id == CONFIG.AnimDetectId or id:find(CONFIG.AnimDetectId, 1, true) then
-            task.spawn(RunSequence)
-        end
+        if id == CONFIG.AnimDetectId or id:find(CONFIG.AnimDetectId, 1, true) then task.spawn(RunSequence) end
     end
 end
 
@@ -370,8 +280,7 @@ local function StartBlockChecker()
         last = 0
         local found = IsAnyoneBlocking()
         if found and not STATE.Blocked then
-            STATE.Blocked = true
-            CancelActiveLock()
+            STATE.Blocked = true CancelActiveLock()
             if Connections.Anim then pcall(function() Connections.Anim:Disconnect() end) Connections.Anim = nil end
         elseif not found and STATE.Blocked then
             STATE.Blocked = false
@@ -380,18 +289,13 @@ local function StartBlockChecker()
     end)
 end
 
-----------------------------------------------------------------
--- AUTO BLOCK
-----------------------------------------------------------------
 local function DoAfterBlock(hrp)
     if not STATE.M1AfterBlock or not hrp or not LocalPlayer.Character then return end
     local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
     if not root then return end
     if (hrp.Position - root.Position).Magnitude <= 10 then
         FireRemote("LeftClick", true)
-        task.delay(0.3, function()
-            if (hrp.Position - root.Position).Magnitude <= 10 then FireRemote("LeftClickRelease", true) end
-        end)
+        task.delay(0.3, function() if (hrp.Position - root.Position).Magnitude <= 10 then FireRemote("LeftClickRelease", true) end end)
     end
 end
 
@@ -402,9 +306,8 @@ local function CheckAnims()
     if not myHRP then return end
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and player.Character.Parent == live then
-            local char = player.Character
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local hum = char:FindFirstChildWhichIsA("Humanoid")
+            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+            local hum = player.Character:FindFirstChildWhichIsA("Humanoid")
             if hrp and hum then
                 local dist = (hrp.Position - myHRP.Position).Magnitude
                 local animator = hum:FindFirstChildOfClass("Animator")
@@ -492,9 +395,6 @@ local function StopAutoBlock()
     if Connections.AutoBlock then pcall(function() Connections.AutoBlock:Disconnect() end) Connections.AutoBlock = nil end
 end
 
-----------------------------------------------------------------
--- BODY ESP
-----------------------------------------------------------------
 local function ClearAllESP()
     for model, highlight in pairs(ESPObjects) do pcall(function() highlight:Destroy() end) end
     table.clear(ESPObjects)
@@ -504,7 +404,6 @@ local function ApplyESP(model)
     if not model or model == LocalPlayer.Character then return end
     if ESPObjects[model] and ESPObjects[model].Parent then return end
     if ESPObjects[model] then pcall(function() ESPObjects[model]:Destroy() end) ESPObjects[model] = nil end
-
     local highlight = Instance.new("Highlight")
     highlight.Name = "JalineESP"
     highlight.Adornee = model
@@ -515,7 +414,6 @@ local function ApplyESP(model)
     highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
     highlight.Parent = model
     ESPObjects[model] = highlight
-
     local conn
     conn = model.AncestryChanged:Connect(function(_, parent)
         if not parent then
@@ -582,7 +480,7 @@ local function StopBodyESP()
 end
 
 ----------------------------------------------------------------
--- ESP PREVIEW (FIXED — always shows a hologram)
+-- ESP PREVIEW: zoomed out, IDLE, natural colors (no white)
 ----------------------------------------------------------------
 local function MakePart(name, size, cf, parent)
     local p = Instance.new("Part")
@@ -592,8 +490,8 @@ local function MakePart(name, size, cf, parent)
     p.Anchored = true
     p.CanCollide = false
     p.Material = Enum.Material.SmoothPlastic
-    p.Color = Color3.fromRGB(255, 255, 255)
-    p.Transparency = 0.25
+    p.Color = Color3.fromRGB(90, 90, 100) -- neutral, not white
+    p.Transparency = 0
     p.Parent = parent
     return p
 end
@@ -601,74 +499,57 @@ end
 local function BuildFallbackMannequin()
     local model = Instance.new("Model")
     model.Name = "ESPHologram"
-
     local root = MakePart("HumanoidRootPart", Vector3.new(2, 2, 1), CFrame.new(0, 3, 0), model)
     model.PrimaryPart = root
-
     MakePart("Head", Vector3.new(1.2, 1.2, 1.2), CFrame.new(0, 4.6, 0), model)
     MakePart("Torso", Vector3.new(2, 2, 1), CFrame.new(0, 3, 0), model)
     MakePart("Left Arm", Vector3.new(1, 2, 1), CFrame.new(-1.5, 3, 0), model)
     MakePart("Right Arm", Vector3.new(1, 2, 1), CFrame.new(1.5, 3, 0), model)
     MakePart("Left Leg", Vector3.new(1, 2, 1), CFrame.new(-0.5, 1, 0), model)
     MakePart("Right Leg", Vector3.new(1, 2, 1), CFrame.new(0.5, 1, 0), model)
-
     local hl = Instance.new("Highlight")
-    hl.FillColor = Color3.fromRGB(255, 255, 255)
+    hl.FillColor = CONFIG.LightPurple
     hl.OutlineColor = CONFIG.LightPurple
-    hl.FillTransparency = 0.5
-    hl.OutlineTransparency = 0
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillTransparency = 0.85
+    hl.OutlineTransparency = 0.2
     hl.Parent = model
-
     return model
 end
 
 local function TryCloneCharacter()
     local char = LocalPlayer.Character
     if not char then return nil end
-
     local hrp = char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
 
-    -- Must set Archivable for Clone to work on characters
     local wasArchivable = char.Archivable
     char.Archivable = true
-
-    local ok, clone = pcall(function()
-        return char:Clone()
-    end)
-
+    local ok, clone = pcall(function() return char:Clone() end)
     char.Archivable = wasArchivable
-
     if not ok or not clone then return nil end
 
-    -- Strip junk
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("LocalScript") or d:IsA("Script") or d:IsA("Tool") or d:IsA("Sound") then
             pcall(function() d:Destroy() end)
         end
     end
 
-    -- Hologram style every part
+    -- Keep natural colors — only anchor, no white / ForceField
     for _, d in ipairs(clone:GetDescendants()) do
         if d:IsA("BasePart") then
             d.Anchored = true
             d.CanCollide = false
-            d.Material = Enum.Material.ForceField
-            d.Color = Color3.fromRGB(255, 255, 255)
-            d.Transparency = math.clamp(d.Transparency, 0.2, 0.55)
         end
     end
 
+    -- Soft purple outline only (no white fill)
     local hl = Instance.new("Highlight")
-    hl.FillColor = Color3.fromRGB(255, 255, 255)
+    hl.FillColor = CONFIG.LightPurple
     hl.OutlineColor = CONFIG.LightPurple
-    hl.FillTransparency = 0.5
-    hl.OutlineTransparency = 0
-    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.FillTransparency = 0.9
+    hl.OutlineTransparency = 0.15
     hl.Parent = clone
 
-    -- Move to origin so camera framing is easy
     local cloneHRP = clone:FindFirstChild("HumanoidRootPart")
     if cloneHRP then
         local offset = cloneHRP.Position
@@ -678,15 +559,11 @@ local function TryCloneCharacter()
             end
         end
     end
-
     return clone
 end
 
 local function CreateESPPreview()
-    if PreviewGui then
-        pcall(function() PreviewGui:Destroy() end)
-        PreviewGui = nil
-    end
+    if PreviewGui then pcall(function() PreviewGui:Destroy() end) PreviewGui = nil end
 
     local gui = Instance.new("ScreenGui")
     gui.Name = "JalineESPPreview"
@@ -695,13 +572,8 @@ local function CreateESPPreview()
     gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     gui.DisplayOrder = 25
 
-    -- Prefer PlayerGui for Viewport reliability
     local pg = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
-    if pg then
-        gui.Parent = pg
-    else
-        pcall(function() gui.Parent = CoreGui end)
-    end
+    if pg then gui.Parent = pg else pcall(function() gui.Parent = CoreGui end) end
     PreviewGui = gui
 
     local panel = Instance.new("Frame")
@@ -713,7 +585,6 @@ local function CreateESPPreview()
     panel.Active = true
     panel.Draggable = true
     panel.Parent = gui
-
     Instance.new("UICorner", panel).CornerRadius = UDim.new(0, 10)
 
     local stroke = Instance.new("UIStroke")
@@ -745,7 +616,7 @@ local function CreateESPPreview()
     sub.Size = UDim2.new(1, -16, 0, 16)
     sub.Position = UDim2.fromOffset(10, 30)
     sub.BackgroundTransparency = 1
-    sub.Text = "Body ESP hologram"
+    sub.Text = "Idle preview"
     sub.Font = Enum.Font.Gotham
     sub.TextSize = 11
     sub.TextColor3 = Color3.fromRGB(170, 160, 200)
@@ -758,11 +629,10 @@ local function CreateESPPreview()
     viewport.Position = UDim2.fromOffset(10, 50)
     viewport.BackgroundColor3 = Color3.fromRGB(6, 6, 10)
     viewport.BorderSizePixel = 0
-    viewport.Ambient = Color3.fromRGB(180, 160, 255)
-    viewport.LightColor = Color3.fromRGB(255, 255, 255)
+    viewport.Ambient = Color3.fromRGB(140, 140, 160)
+    viewport.LightColor = Color3.fromRGB(220, 220, 230)
     viewport.LightDirection = Vector3.new(0, -1, -1)
     viewport.Parent = panel
-
     Instance.new("UICorner", viewport).CornerRadius = UDim.new(0, 8)
 
     local vStroke = Instance.new("UIStroke")
@@ -775,37 +645,30 @@ local function CreateESPPreview()
     world.Parent = viewport
 
     local cam = Instance.new("Camera")
-    cam.FieldOfView = 35
+    cam.FieldOfView = 30 -- slightly tighter FOV + far distance = zoomed out look
     cam.Parent = viewport
     viewport.CurrentCamera = cam
 
     local cloneRef = nil
-    local angle = 0
 
-    local function setCameraOnModel(model)
+    -- ZOOMED OUT + IDLE (no orbit)
+    local function setCameraIdle(model)
         local pp = model.PrimaryPart or model:FindFirstChild("HumanoidRootPart") or model:FindFirstChildWhichIsA("BasePart")
         if not pp then return end
         local center = pp.Position
-        cam.CFrame = CFrame.new(center + Vector3.new(0, 1.2, 7), center + Vector3.new(0, 0.6, 0))
+        -- Farther distance = zoomed out
+        cam.CFrame = CFrame.new(center + Vector3.new(0, 2.2, 14), center + Vector3.new(0, 1.0, 0))
     end
 
     local function rebuild()
-        if cloneRef then
-            pcall(function() cloneRef:Destroy() end)
-            cloneRef = nil
-        end
-
+        if cloneRef then pcall(function() cloneRef:Destroy() end) cloneRef = nil end
         local clone = TryCloneCharacter()
-        if not clone then
-            clone = BuildFallbackMannequin()
-        end
-
+        if not clone then clone = BuildFallbackMannequin() end
         clone.Parent = world
         cloneRef = clone
-        setCameraOnModel(clone)
+        setCameraIdle(clone)
     end
 
-    -- Build now + retries (character may not be ready)
     task.spawn(function()
         for i = 1, 8 do
             rebuild()
@@ -814,17 +677,11 @@ local function CreateESPPreview()
         end
     end)
 
-    if Connections.PreviewRot then pcall(function() Connections.PreviewRot:Disconnect() end) end
-    Connections.PreviewRot = RunService.RenderStepped:Connect(function(dt)
-        if not cloneRef or not cloneRef.Parent then return end
-        local pp = cloneRef.PrimaryPart or cloneRef:FindFirstChild("HumanoidRootPart") or cloneRef:FindFirstChildWhichIsA("BasePart")
-        if not pp then return end
-        angle += dt * 0.55
-        local center = pp.Position
-        local dist = 6.5
-        local offset = Vector3.new(math.sin(angle) * dist, 1.3, math.cos(angle) * dist)
-        cam.CFrame = CFrame.new(center + offset, center + Vector3.new(0, 0.5, 0))
-    end)
+    -- NO rotation loop — stays idle
+    if Connections.PreviewRot then
+        pcall(function() Connections.PreviewRot:Disconnect() end)
+        Connections.PreviewRot = nil
+    end
 
     LocalPlayer.CharacterAdded:Connect(function()
         task.wait(1.2)
@@ -841,9 +698,6 @@ local function CreateESPPreview()
     end)
 end
 
-----------------------------------------------------------------
--- STAR VISUALS
-----------------------------------------------------------------
 local function CreateVisuals()
     if VisualGui then pcall(function() VisualGui:Destroy() end) VisualGui = nil end
     local gui = Instance.new("ScreenGui")
@@ -854,13 +708,11 @@ local function CreateVisuals()
     pcall(function() gui.Parent = CoreGui end)
     if not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
     VisualGui = gui
-
     local container = Instance.new("Frame")
     container.Size = UDim2.fromScale(1, 1)
     container.BackgroundTransparency = 1
     container.ClipsDescendants = true
     container.Parent = gui
-
     local decor = Instance.new("ImageLabel")
     decor.AnchorPoint = Vector2.new(0.5, 0.5)
     decor.Position = UDim2.new(0.92, 0, 0.09, 0)
@@ -870,7 +722,6 @@ local function CreateVisuals()
     decor.ImageColor3 = CONFIG.LightPurple
     decor.ImageTransparency = 0.22
     decor.Parent = container
-
     task.spawn(function()
         while decor and decor.Parent do
             local up = TweenService:Create(decor, TweenInfo.new(1.55, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), { Size = UDim2.fromOffset(102, 102), ImageTransparency = 0.06 })
@@ -879,7 +730,6 @@ local function CreateVisuals()
             down:Play() down.Completed:Wait()
         end
     end)
-
     if Connections.StarLoop then pcall(function() Connections.StarLoop:Disconnect() end) end
     Connections.StarLoop = RunService.Heartbeat:Connect(function()
         if not container.Parent or math.random() > 0.031 then return end
@@ -903,9 +753,6 @@ local function CreateVisuals()
     end)
 end
 
-----------------------------------------------------------------
--- SETUP
-----------------------------------------------------------------
 local function DashSetup()
     HookCharacter()
     StartBlockChecker()
@@ -918,7 +765,7 @@ end
 
 local function DashUnload()
     for name, conn in pairs(Connections) do
-        if name ~= "StarLoop" and name ~= "AutoBlock" and name ~= "PreviewRot" and conn then
+        if name ~= "StarLoop" and name ~= "AutoBlock" and conn then
             pcall(function() conn:Disconnect() end)
             Connections[name] = nil
         end
@@ -930,9 +777,6 @@ end
 
 LocalPlayer.CharacterRemoving:Connect(CancelActiveLock)
 
-----------------------------------------------------------------
--- THEME
-----------------------------------------------------------------
 local CustomTheme = {
     WindowColor = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(8, 8, 12)),
@@ -942,7 +786,7 @@ local CustomTheme = {
     LiveAnimation = true,
     ContentColor = Color3.fromRGB(230, 225, 255),
     TitlingColor = Color3.fromRGB(210, 185, 255),
-    ActionColor  = CONFIG.LightPurple,
+    ActionColor = CONFIG.LightPurple,
     TabColor = Color3.fromRGB(220, 200, 255),
     TabBackground = ColorSequence.new({
         ColorSequenceKeypoint.new(0, Color3.fromRGB(18, 14, 28)),
@@ -965,9 +809,6 @@ local CustomTheme = {
     ToggleKnobOff = Color3.fromRGB(90, 80, 120),
 }
 
-----------------------------------------------------------------
--- UI
-----------------------------------------------------------------
 local Window = Rayfield:CreateWindow({
     Name = "Jaline Dash",
     subtitle = "Premium Edition",
@@ -1041,4 +882,4 @@ AutoBlockTab:CreateSlider({ Name = "Special Range", flag = "SpecialRange", range
 AutoBlockTab:CreateSlider({ Name = "Skill Range", flag = "SkillRange", range = {10, 100}, increment = 1, value = STATE.SkillRange, callback = function(v) STATE.SkillRange = v end })
 AutoBlockTab:CreateSlider({ Name = "Skill Hold Delay", flag = "SkillDelay", range = {0.3, 3}, increment = 0.1, value = STATE.SkillDelay, suffix = "s", callback = function(v) STATE.SkillDelay = v end })
 
-print("[Jaline Dash] Loaded • Fixed ESP Preview")
+print("[Jaline Dash] Loaded • ESP Preview zoomed out + idle + natural colors")
