@@ -1,7 +1,7 @@
 --[[
     Jaline Dash
     Premium Edition
-    Loop Dash: Detect -> Lock Target -> Dash
+    OLD Loop Dash logic restored
 ]]
 
 local Rayfield = loadstring(game:HttpGet("https://sirius.menu/gen2"))()
@@ -33,15 +33,16 @@ local CONFIG = {
 
 local STATE = {
     Enabled = false, Debounce = false, Blocked = false,
-    WaitDetect = 0.05,   -- tiny delay after detect before lock
-    LockDuration = 1.20,
-    Cooldown = 0.80,
+    WaitDetect = 0.30,
+    WaitRemote = 0.10,
+    LockDuration = 1.50,
+    Cooldown = 1.00,
     TargetRadius = 50,
-    Responsiveness = 800,
+    Responsiveness = 650,
     BodyESP = false, InfDash = false,
     AutoBlock = false, M1AfterBlock = false, M1Catch = false,
     NormalRange = 30, SpecialRange = 50, SkillRange = 50, SkillDelay = 1.2,
-    Jump = 55, Accuracy = 85, AimRange = 50, Cancel = 0.3,
+    Jump = 55, Accuracy = 15, AimRange = 8, Cancel = 0.4,
 }
 
 local Connections = {}
@@ -77,9 +78,6 @@ local SkillIDs = {
     [113166426814229] = true, [116753755471636] = true, [116153572280464] = true, [114095570398448] = true, [77509627104305] = true
 }
 
-----------------------------------------------------------------
--- UTILS
-----------------------------------------------------------------
 local function GetCharParts()
     local char = LocalPlayer.Character
     if not char then return nil, nil, nil end
@@ -128,22 +126,26 @@ local function FireRemote(goal, mobile)
     end)
 end
 
-----------------------------------------------------------------
--- TARGET
-----------------------------------------------------------------
+local function GetCameraFlatLook()
+    local cam = Workspace.CurrentCamera
+    if not cam then return Vector3.new(0, 0, -1) end
+    local look = cam.CFrame.LookVector
+    local flat = Vector3.new(look.X, 0, look.Z)
+    if flat.Magnitude < 0.001 then return Vector3.new(0, 0, -1) end
+    return flat.Unit
+end
+
 local function FindBestTarget()
     local live = Workspace:FindFirstChild("Live")
     if not live then return nil end
     local _, _, hrp = GetCharParts()
     if not hrp then return nil end
-
     local maxDist = math.max(STATE.AimRange, STATE.TargetRadius)
     local bestRoot, bestDist = nil, maxDist
-
     for _, model in ipairs(live:GetChildren()) do
         if model:IsA("Model") and model ~= LocalPlayer.Character then
             local root = model:FindFirstChild("HumanoidRootPart")
-            local hum  = model:FindFirstChildOfClass("Humanoid")
+            local hum = model:FindFirstChildOfClass("Humanoid")
             if root and hum and hum.Health > 0 then
                 local valid = (model.Name == "Weakest Dummy") or (Players:GetPlayerFromCharacter(model) ~= nil)
                 if valid then
@@ -159,9 +161,6 @@ local function FindBestTarget()
     return bestRoot
 end
 
-----------------------------------------------------------------
--- BLOCK CHECK
-----------------------------------------------------------------
 local function HasBlockingAnim(model)
     local hum = model and model:FindFirstChildOfClass("Humanoid")
     if not hum then return false end
@@ -190,75 +189,56 @@ local function IsAnyoneBlocking()
 end
 
 ----------------------------------------------------------------
--- LOCK ONTO TARGET (character + camera face target)
+-- OLD LOCK LOGIC (restored)
 ----------------------------------------------------------------
-local function FaceTarget(targetRoot)
-    local _, humanoid, hrp = GetCharParts()
-    if not hrp or not targetRoot or not targetRoot.Parent then return end
-
-    local hrpPos = hrp.Position
-    local toTarget = Vector3.new(targetRoot.Position.X - hrpPos.X, 0, targetRoot.Position.Z - hrpPos.Z)
-    if toTarget.Magnitude < 0.05 then return end
-    toTarget = toTarget.Unit
-
-    pcall(function()
-        hrp.CFrame = CFrame.new(hrpPos, hrpPos + toTarget)
-    end)
-
-    local cam = Workspace.CurrentCamera
-    if cam then
-        local camPos = cam.CFrame.Position
-        local lookAt = targetRoot.Position + Vector3.new(0, 1.5, 0)
-        pcall(function()
-            cam.CFrame = CFrame.new(camPos, lookAt)
-        end)
-    end
-end
-
-local function StartLock(targetRoot, duration)
-    if not targetRoot or duration <= 0 then return nil end
-
+local function StartHorizontalLock(targetRoot, duration)
+    if duration <= 0 then return nil end
     local _, humanoid, hrp = GetCharParts()
     if not hrp or not humanoid then return nil end
-
     local cam = Workspace.CurrentCamera
     local startTime = tick()
     local conn
-
-    -- Snap face immediately
-    FaceTarget(targetRoot)
-
     conn = RunService.RenderStepped:Connect(function(dt)
         if STATE.Blocked or not STATE.Enabled then
             if conn then conn:Disconnect() end
             return
         end
-        if not hrp.Parent or not targetRoot.Parent then
+        if not hrp.Parent then
             if conn then conn:Disconnect() end
             return
         end
 
         local hrpPos = hrp.Position
-        local toTarget = Vector3.new(targetRoot.Position.X - hrpPos.X, 0, targetRoot.Position.Z - hrpPos.Z)
-        if toTarget.Magnitude < 0.05 then return end
-        toTarget = toTarget.Unit
-
-        local acc = math.clamp(STATE.Accuracy / 100, 0.1, 1)
-        local desired = CFrame.new(hrpPos, hrpPos + toTarget)
-        local resp = math.clamp(STATE.Responsiveness, 50, 2000)
-
-        if resp >= 900 or acc >= 0.9 then
-            pcall(function() hrp.CFrame = desired end)
+        local desiredLook
+        if targetRoot and targetRoot.Parent then
+            local toTarget = Vector3.new(targetRoot.Position.X - hrpPos.X, 0, targetRoot.Position.Z - hrpPos.Z)
+            desiredLook = toTarget.Magnitude > 0.05 and toTarget.Unit or GetCameraFlatLook()
         else
-            local alpha = math.clamp(1 - math.exp(-0.03 * resp * dt) * acc, 0, 1)
-            pcall(function() hrp.CFrame = hrp.CFrame:Lerp(desired, alpha) end)
+            desiredLook = GetCameraFlatLook()
+        end
+
+        local acc = math.clamp(STATE.Accuracy / 100, 0.05, 1)
+        local camLook = GetCameraFlatLook()
+        local blended = (desiredLook * acc + camLook * (1 - acc))
+        blended = blended.Magnitude < 0.001 and desiredLook or blended.Unit
+
+        local desiredChar = CFrame.new(hrpPos, hrpPos + blended)
+        local resp = math.clamp(STATE.Responsiveness, 1, 10000)
+
+        if resp >= 900 then
+            pcall(function() hrp.CFrame = desiredChar end)
+        else
+            local alpha = 1 - math.exp(-0.028 * resp * dt)
+            pcall(function() hrp.CFrame = hrp.CFrame:Lerp(desiredChar, math.clamp(alpha, 0, 1)) end)
         end
 
         if cam then
             local camPos = cam.CFrame.Position
-            local lookAt = targetRoot.Position + Vector3.new(0, 1.5, 0)
+            local lookTarget = (targetRoot and targetRoot.Parent)
+                and (targetRoot.Position + Vector3.new(0, 1.5, 0))
+                or (camPos + blended * 20)
             pcall(function()
-                cam.CFrame = cam.CFrame:Lerp(CFrame.new(camPos, lookAt), math.clamp(12 * dt, 0, 1))
+                cam.CFrame = cam.CFrame:Lerp(CFrame.new(camPos, lookTarget), math.clamp(1 - math.exp(-12 * dt), 0, 1))
             end)
         end
 
@@ -285,32 +265,26 @@ local function CancelActiveLock()
 end
 
 ----------------------------------------------------------------
--- LOOP DASH SEQUENCE
--- 1) Detect (AnimationPlayed already fired)
--- 2) Lock onto nearest target
--- 3) Dash
--- Done.
+-- OLD RUN SEQUENCE (restored exactly)
+-- Detect wait → face camera → jump + dash → wait remote → lock target
 ----------------------------------------------------------------
 local function RunSequence()
     if STATE.Debounce or not STATE.Enabled or STATE.Blocked then return end
     STATE.Debounce = true
 
-    local _, humanoid, hrp = GetCharParts()
-    if not humanoid or not hrp then
-        STATE.Debounce = false
-        return
-    end
+    local waitDetect = STATE.WaitDetect
+    local waitRemote = STATE.WaitRemote
+    local lockDur = STATE.LockDuration
+    local cooldown = math.max(STATE.Cooldown, STATE.Cancel)
 
-    -- Optional tiny settle after detect
-    if STATE.WaitDetect > 0 then
-        local t0 = tick()
-        while tick() - t0 < STATE.WaitDetect do
-            if not STATE.Enabled or STATE.Blocked then
-                STATE.Debounce = false
-                return
-            end
-            RunService.Heartbeat:Wait()
+    -- 1) Wait after detect
+    local t0 = tick()
+    while tick() - t0 < waitDetect do
+        if not STATE.Enabled or STATE.Blocked then
+            STATE.Debounce = false
+            return
         end
+        RunService.Heartbeat:Wait()
     end
 
     if not STATE.Enabled or STATE.Blocked then
@@ -318,14 +292,8 @@ local function RunSequence()
         return
     end
 
-    -- 2) LOCK onto target first
-    local target = FindBestTarget()
-    if not target then
-        -- No target in range — still allow dash facing camera, but no lock
-        STATE.Debounce = false
-        task.delay(STATE.Cooldown, function() end)
-        -- fall through only if you want dash without target; user said lock then dash
-        -- so exit cleanly if no target:
+    local char, humanoid, hrp = GetCharParts()
+    if not humanoid or not hrp then
         STATE.Debounce = false
         return
     end
@@ -333,21 +301,58 @@ local function RunSequence()
     local prevAuto = humanoid.AutoRotate
     pcall(function() humanoid.AutoRotate = false end)
 
-    -- Snap lock immediately
-    FaceTarget(target)
-    ActiveLockCleanup = StartLock(target, STATE.LockDuration)
+    -- 2) Face camera direction first
+    do
+        local camLook = GetCameraFlatLook()
+        pcall(function()
+            hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + camLook)
+        end)
+        local cam = Workspace.CurrentCamera
+        if cam then
+            local camPos = cam.CFrame.Position
+            pcall(function()
+                cam.CFrame = CFrame.new(camPos, camPos + camLook * 20)
+            end)
+        end
+    end
 
-    -- 3) DASH toward locked target
+    -- 3) Jump + Dash
     pcall(function()
         humanoid.Jump = true
         humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
     end)
     FireDashQW()
 
-    -- Hold AutoRotate off while locking
+    -- 4) Wait remote / flick delay
+    local t2 = tick()
+    while tick() - t2 < waitRemote do
+        if not STATE.Enabled or STATE.Blocked then
+            pcall(function()
+                if humanoid.Parent then humanoid.AutoRotate = prevAuto end
+            end)
+            STATE.Debounce = false
+            return
+        end
+        RunService.Heartbeat:Wait()
+    end
+
+    if not STATE.Enabled or STATE.Blocked then
+        pcall(function()
+            if humanoid.Parent then humanoid.AutoRotate = prevAuto end
+        end)
+        STATE.Debounce = false
+        return
+    end
+
+    -- 5) Lock onto target
+    local target = FindBestTarget()
+    if not STATE.Blocked then
+        ActiveLockCleanup = StartHorizontalLock(target, lockDur)
+    end
+
     task.spawn(function()
-        local untilTime = tick() + STATE.LockDuration
-        while tick() < untilTime do
+        local keepUntil = tick() + math.max(lockDur, 1.0)
+        while tick() < keepUntil do
             if not STATE.Enabled or STATE.Blocked then break end
             pcall(function()
                 if humanoid and humanoid.Parent then
@@ -363,22 +368,18 @@ local function RunSequence()
         end)
     end)
 
-    task.delay(STATE.LockDuration, function()
+    task.delay(lockDur, function()
         if ActiveLockCleanup then
             pcall(ActiveLockCleanup)
             ActiveLockCleanup = nil
         end
     end)
 
-    local cd = math.max(STATE.Cooldown, STATE.Cancel)
-    task.delay(cd, function()
+    task.delay(cooldown, function()
         STATE.Debounce = false
     end)
 end
 
-----------------------------------------------------------------
--- ANIM HOOK
-----------------------------------------------------------------
 local function OnAnimationPlayed(track)
     if not track or not track.Animation then return end
     local id = tostring(track.Animation.AnimationId or "")
@@ -430,7 +431,7 @@ local function StartBlockChecker()
 end
 
 ----------------------------------------------------------------
--- AUTO BLOCK (unchanged logic)
+-- AUTO BLOCK
 ----------------------------------------------------------------
 local function DoAfterBlock(hrp)
     if not STATE.M1AfterBlock or not hrp or not LocalPlayer.Character then return end
@@ -658,7 +659,7 @@ local function StopBodyESP()
 end
 
 ----------------------------------------------------------------
--- ESP PREVIEW (kept)
+-- ESP PREVIEW + VISUALS (unchanged)
 ----------------------------------------------------------------
 local function MakePart(name, size, cf, parent)
     local p = Instance.new("Part")
@@ -923,9 +924,6 @@ local function CreateVisuals()
     end)
 end
 
-----------------------------------------------------------------
--- SETUP
-----------------------------------------------------------------
 local function DashSetup()
     HookCharacter()
     StartBlockChecker()
@@ -990,7 +988,7 @@ local CustomTheme = {
 
 local Window = Rayfield:CreateWindow({
     Name = "Jaline Dash",
-    subtitle = "Detect → Lock → Dash",
+    subtitle = "Premium Edition",
     theme = CustomTheme,
     configuration = { autoSave = true, autoLoad = true, fileName = "JalineDash" },
 })
@@ -1004,7 +1002,7 @@ local AutoBlockTab = Window:CreateTab({ Name = "Auto Block", icon = 933649492413
 
 Tab:CreateToggle({
     Name = "Jaline Dash",
-    description = "Detect → Lock target → Dash",
+    description = "Old loop dash logic restored",
     flag = "JalineDashEnabled",
     value = false,
     callback = function(value)
@@ -1043,15 +1041,15 @@ Tab:CreateToggle({
     end,
 })
 
-Tab:CreateSlider({ Name = "Detect Delay", flag = "DetectDelay", range = {0, 0.5}, increment = 0.01, value = STATE.WaitDetect, suffix = "s", callback = function(v) STATE.WaitDetect = v end })
+Tab:CreateSlider({ Name = "Detect Delay", flag = "DetectDelay", range = {0, 1.5}, increment = 0.05, value = STATE.WaitDetect, suffix = "s", callback = function(v) STATE.WaitDetect = v end })
+Tab:CreateSlider({ Name = "Flick Delay", flag = "FlickDelay", range = {0, 0.8}, increment = 0.05, value = STATE.WaitRemote, suffix = "s", callback = function(v) STATE.WaitRemote = v end })
 Tab:CreateSlider({ Name = "Lock Duration", flag = "LockDuration", range = {0.3, 3}, increment = 0.1, value = STATE.LockDuration, suffix = "s", callback = function(v) STATE.LockDuration = v end })
 Tab:CreateSlider({ Name = "Smoothness", flag = "Smoothness", range = {50, 1000}, increment = 10, value = STATE.Responsiveness, callback = function(v) STATE.Responsiveness = v end })
-Tab:CreateSlider({ Name = "Cooldown", flag = "Cooldown", range = {0.2, 2}, increment = 0.05, value = STATE.Cooldown, suffix = "s", callback = function(v) STATE.Cooldown = v end })
 
 SettingsTab:CreateSlider({ Name = "Jump", description = "Character JumpPower", flag = "JumpPower", range = {0, 120}, increment = 1, value = STATE.Jump, callback = function(v) STATE.Jump = v ApplyJumpPower() end })
-SettingsTab:CreateSlider({ Name = "Accuracy", description = "Lock strength (higher = tighter)", flag = "Accuracy", range = {1, 100}, increment = 1, value = STATE.Accuracy, callback = function(v) STATE.Accuracy = v end })
-SettingsTab:CreateSlider({ Name = "Range", description = "Target search range", flag = "AimRange", range = {5, 80}, increment = 1, value = STATE.AimRange, callback = function(v) STATE.AimRange = v end })
-SettingsTab:CreateSlider({ Name = "Cancel", description = "Min cooldown buffer", flag = "Cancel", range = {0, 2}, increment = 0.05, value = STATE.Cancel, suffix = "s", callback = function(v) STATE.Cancel = v end })
+SettingsTab:CreateSlider({ Name = "Accuracy", description = "Lock aim strength", flag = "Accuracy", range = {1, 100}, increment = 1, value = STATE.Accuracy, callback = function(v) STATE.Accuracy = v end })
+SettingsTab:CreateSlider({ Name = "Range", description = "Target search range", flag = "AimRange", range = {1, 50}, increment = 1, value = STATE.AimRange, callback = function(v) STATE.AimRange = v end })
+SettingsTab:CreateSlider({ Name = "Cancel", description = "Min cooldown after sequence", flag = "Cancel", range = {0, 2}, increment = 0.05, value = STATE.Cancel, suffix = "s", callback = function(v) STATE.Cancel = v end })
 
 AutoBlockTab:CreateToggle({
     Name = "Activate Auto Block",
@@ -1071,4 +1069,4 @@ AutoBlockTab:CreateSlider({ Name = "Special Range", flag = "SpecialRange", range
 AutoBlockTab:CreateSlider({ Name = "Skill Range", flag = "SkillRange", range = {10, 100}, increment = 1, value = STATE.SkillRange, callback = function(v) STATE.SkillRange = v end })
 AutoBlockTab:CreateSlider({ Name = "Skill Hold Delay", flag = "SkillDelay", range = {0.3, 3}, increment = 0.1, value = STATE.SkillDelay, suffix = "s", callback = function(v) STATE.SkillDelay = v end })
 
-print("[Jaline Dash] Loaded • Detect → Lock → Dash")
+print("[Jaline Dash] Loaded • OLD Loop Dash logic restored")
